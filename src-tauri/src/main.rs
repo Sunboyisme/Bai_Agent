@@ -1,0 +1,237 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use serde::Serialize;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+use std::{
+    path::PathBuf,
+    process::{Child, Command},
+    sync::Mutex,
+    time::Duration,
+};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
+};
+use tauri_plugin_notification::NotificationExt;
+
+struct Backend {
+    child: Mutex<Option<Child>>,
+    data_dir: PathBuf,
+}
+#[derive(Serialize)]
+struct Connection {
+    url: String,
+    token: String,
+}
+
+#[tauri::command]
+fn backend_config(state: tauri::State<'_, Backend>) -> Result<Connection, String> {
+    let token = std::fs::read_to_string(state.data_dir.join("auth-token"))
+        .map_err(|_| "本机服务正在启动，请稍候。")?;
+    Ok(Connection {
+        url: "http://127.0.0.1:8766/api/v1".into(),
+        token: token.trim().into(),
+    })
+}
+
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+fn open_main(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn main() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let data_dir = std::env::var_os("BAI_DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join(".local-data").join("dev"));
+    let backend = Backend {
+        child: Mutex::new(None),
+        data_dir: data_dir.clone(),
+    };
+    let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            open_main(app)
+        }))
+        .plugin(tauri_plugin_notification::init())
+        .manage(backend)
+        .invoke_handler(tauri::generate_handler![backend_config, quit_app])
+        .setup(move |app| {
+            let python = root
+                .join("backend")
+                .join(".venv")
+                .join("Scripts")
+                .join("python.exe");
+            let client = reqwest::blocking::Client::builder()
+                .timeout(Duration::from_secs(1))
+                .build()?;
+            let online = client
+                .get("http://127.0.0.1:8766/api/v1/health")
+                .send()
+                .ok()
+                .and_then(|r| r.json::<serde_json::Value>().ok())
+                .is_some_and(|v| v["service"] == "bai-agent");
+            if online {
+                let token =
+                    std::fs::read_to_string(data_dir.join("auth-token")).unwrap_or_default();
+                let same_profile = client
+                    .get("http://127.0.0.1:8766/api/v1/settings")
+                    .bearer_auth(token.trim())
+                    .send()
+                    .is_ok_and(|r| r.status().is_success());
+                if !same_profile {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::AddrInUse,
+                        "8766 端口正在运行其他 Bai 数据空间。请先退出该空间后再启动。",
+                    )
+                    .into());
+                }
+            }
+            if !online {
+                let mut command = Command::new(python);
+                command
+                    .args([
+                        "-m",
+                        "uvicorn",
+                        "app.main:app",
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        "8766",
+                        "--no-access-log",
+                    ])
+                    .current_dir(root.join("backend"))
+                    .env("BAI_DATA_DIR", &data_dir);
+                #[cfg(windows)]
+                command.creation_flags(0x08000000);
+                let child = command.spawn()?;
+                *app.state::<Backend>().child.lock().unwrap() = Some(child);
+            }
+            let show = MenuItem::with_id(app, "show", "打开 Bai", true, None::<&str>)?;
+            let exit =
+                MenuItem::with_id(app, "quit", "退出 Bai（暂停本机提醒）", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &exit])?;
+            let mut icon_data = vec![0u8; 32 * 32 * 4];
+            for y in 0..32 {
+                for x in 0..32 {
+                    let i = (y * 32 + x) * 4;
+                    icon_data[i..i + 4].copy_from_slice(&[83, 109, 204, 255]);
+                    if (x == 16 && y > 6 && y < 25) || (y == 16 && x > 6 && x < 25) {
+                        icon_data[i..i + 4].copy_from_slice(&[255, 255, 255, 255]);
+                    }
+                }
+            }
+            TrayIconBuilder::new()
+                .icon(tauri::image::Image::new_owned(icon_data, 32, 32))
+                .tooltip("Bai · 个人助手")
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => open_main(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if matches!(event, TrayIconEvent::DoubleClick { .. }) {
+                        open_main(tray.app_handle());
+                    }
+                })
+                .build(app)?;
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let client = reqwest::blocking::Client::builder()
+                    .timeout(Duration::from_secs(3))
+                    .build()
+                    .unwrap();
+                loop {
+                    std::thread::sleep(Duration::from_secs(3));
+                    let Ok(token) = std::fs::read_to_string(data_dir.join("auth-token")) else {
+                        continue;
+                    };
+                    let Ok(response) = client
+                        .get("http://127.0.0.1:8766/api/v1/notifications?pending_only=true")
+                        .bearer_auth(token.trim())
+                        .send()
+                    else {
+                        continue;
+                    };
+                    let Ok(notes) = response.json::<Vec<serde_json::Value>>() else {
+                        continue;
+                    };
+                    if notes.is_empty() {
+                        continue;
+                    }
+                    for note in &notes {
+                        let _ = handle
+                            .notification()
+                            .builder()
+                            .title(note["title"].as_str().unwrap_or("Bai 提醒你"))
+                            .body(note["body"].as_str().unwrap_or(""))
+                            .show();
+                    }
+                    let window_ready = if let Some(window) = handle.get_webview_window("reminder") {
+                        let shown = window.show().is_ok();
+                        let _ = window.set_focus();
+                        shown
+                    } else {
+                        WebviewWindowBuilder::new(
+                            &handle,
+                            "reminder",
+                            WebviewUrl::App("index.html?view=reminder".into()),
+                        )
+                        .title("Bai 提醒你")
+                        .inner_size(420.0, 320.0)
+                        .resizable(false)
+                        .always_on_top(true)
+                        .center()
+                        .build()
+                        .is_ok()
+                    };
+                    if window_ready {
+                        for note in &notes {
+                            if let Some(id) = note["id"].as_str() {
+                                let _ = client
+                                    .post(format!(
+                                        "http://127.0.0.1:8766/api/v1/notifications/{id}/ack"
+                                    ))
+                                    .bearer_auth(token.trim())
+                                    .send();
+                            }
+                        }
+                    }
+                    let _ = handle.emit("bai-reminder", ());
+                }
+            });
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("Bai 桌面应用启动失败");
+    app.run(|handle, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            if let Some(mut child) = handle.state::<Backend>().child.lock().unwrap().take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    });
+}

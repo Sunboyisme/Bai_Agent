@@ -1,0 +1,44 @@
+# 架构与数据约定
+
+```mermaid
+flowchart LR
+  W[React Windows 界面] --> T[Tauri 原生窗口与托盘]
+  W --> F[FastAPI 本机服务]
+  T --> F
+  F --> C[LangChain 对话与工具]
+  F --> G[LangGraph 教学流程]
+  C --> L[用户配置的模型]
+  G --> L
+  C --> S[Tavily 搜索与正文]
+  F --> D[(SQLAlchemy SQLite)]
+  G --> P[(SQLite checkpoint)]
+  F --> R[持久化提醒与调度]
+  R --> T
+```
+
+## 代码分工
+
+- `src/components`：对话、学习、记忆、提醒、设置；`src/lib/api.ts` 统一请求和 SSE，`api.generated.ts` 从 OpenAPI 生成。
+- `src-tauri/src/main.rs`：启动本机 Python 子进程、连接认证、单实例、托盘、通知窗口、正常退出时停止自己启动的后端。
+- `backend/app/main.py`：受本机 bearer token 保护的领域 API、上传校验、任务入口。
+- `agent.py`：LangChain Agent、搜索/正文/记忆/提醒/学习目标工具及审计。
+- `learning.py`：课程规划，`teach → await_submission → assess` 教学图。
+- `runs.py`：任务生命周期、超时、取消、数据库事件。
+- `reminders.py`：从数据库取到期事项，写入唯一通知，并推进重复任务时间。
+- `db.py` 和 `migrations`：领域模型与不可变版本迁移。
+
+## 关键约定
+
+每个学习目标有一版有序课程。前置知识只能引用已经排在前面的点；生成结果完整校验后一次提交，已有课程不覆盖。`passed` 表示练习反馈通过，`skipped` 表示跳过且尚未验证，两者在显示与统计上分开。
+
+每次教学创建唯一 lesson 和 graph thread。LangGraph 在等待练习时保存 checkpoint；提交使用稳定的 submission_id 去重。评估失败时保留等待状态和 graph checkpoint，重试后保存一次反馈。服务重启将中断的模型任务标记为失败，用户显式重试；已经保存的课程与练习继续保留。该机制依据 [LangGraph persistence](https://docs.langchain.com/oss/python/langgraph/persistence) 和 [interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts)。
+
+SSE 的事件先存数据库再读取，界面断开不取消任务。重新打开界面可以重放事件和读取最终状态。模型工具操作即时生效，取消生成不会撤销已完成的记忆或提醒操作；界面会说明并可在对应页管理。
+
+只有 confirmed 记忆进入背景检索；candidate 等待确认。对话保留近期上下文，删除记忆与删除历史对话是独立操作。当前为单人本机版本，profile_id 为 local；未来云端必须将身份校验和用户过滤落实到全部查询。
+
+提醒时刻统一存带时区的 UTC ISO 文本，重复规则按指定时区的本地时间推进。通知以 reminder_id + occurrence_at 唯一，修改或取消提醒时作废未读旧通知。界面固定北京时间，API 支持 IANA 时区。Windows 原生通知可能受系统通知设置影响，独立提醒窗口作为可见入口。
+
+图片最多 4 张、单张 10 MB，解码后限制像素，去 EXIF、缩放并转 JPEG，以 UUID 保存。图片请求必须经过本机认证，模型图片输入需显式启用。代码提交仅作为文本反馈，未实现执行沙箱。
+
+模型、搜索、图执行与业务数据分离；后续手机使用相同 REST/SSE 合同，不共享 Tauri 的 IPC。当前没有云端运行环境或跨设备账号。
