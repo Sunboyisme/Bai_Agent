@@ -62,7 +62,83 @@ def reply(body):
         }
     last = messages[-1]
     if last["role"] == "tool":
+        try:
+            result = json.loads(last.get("content", "{}"))
+        except json.JSONDecodeError:
+            result = {}
+        if isinstance(result, dict) and result.get("skipped"):
+            return {"content": "好的，我们继续。"}
+        if isinstance(result, dict) and result.get("state") == "candidate":
+            return {"content": "这条信息需要你确认是否记住。"}
         return {"content": "工具已经执行，结果已保存。"}
+    if "检查记忆背景" in user:
+        return {
+            "content": json.dumps(
+                {
+                    "preference_available": "我喜欢简短的回答" in system,
+                    "private_available": "我有糖尿病" in system,
+                },
+                ensure_ascii=False,
+            )
+        }
+    calls = []
+    if "天气" in user:
+        calls.append(("get_weather", {"city": "广州", "days": 3, "country_code": "CN"}))
+    if "计算" in user:
+        calls.append(("calculate", {"expression": "(199 + 89) * 0.85"}))
+    if "换算" in user:
+        calls.append(
+            ("convert_units", {"value": "5", "from_unit": "mile", "to_unit": "km"})
+        )
+    if "日期" in user:
+        calls.append(("date_time", {"value": "2026-10-15", "add_days": 30}))
+    if calls:
+        return {
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": f"call_{index}",
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": json.dumps(arguments, ensure_ascii=False),
+                    },
+                }
+                for index, (name, arguments) in enumerate(calls)
+            ],
+        }
+    if "喜欢简短的回答" in user or "我有糖尿病" in user or "今天想吃清淡" in user:
+        content = (
+            "我有糖尿病"
+            if "我有糖尿病" in user
+            else "今天想吃清淡"
+            if "今天想吃清淡" in user
+            else "我喜欢简短的回答"
+        )
+        return {
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_memory_policy",
+                    "type": "function",
+                    "function": {
+                        "name": "remember",
+                        "arguments": json.dumps(
+                            {
+                                "content": content,
+                                "category": "fact"
+                                if "糖尿病" in content
+                                else "preference",
+                                "evidence": content,
+                                # Deliberately normal: backend must independently guard private / temporary data.
+                                "risk": "normal",
+                            },
+                            ensure_ascii=False,
+                        ),
+                    },
+                }
+            ],
+        }
     if "记住" in user:
         return {
             "content": "我先保存这条记忆。",

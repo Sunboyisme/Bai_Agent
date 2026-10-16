@@ -305,7 +305,7 @@ def test_real_langchain_tool_loop_and_stream(configured):
             json={"content": "请记住我喜欢先看例子"},
         ),
     )
-    assert run["status"] == "completed", run
+    assert run["status"] == "completed", run.get("error")
     assert run["result"]["content"] == "工具已经执行，结果已保存。"
     assert run["usage"]["total_tokens"] > 0
     memories = configured.get(API + "/memories").json()

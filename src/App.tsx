@@ -3,13 +3,11 @@ import {
   Bell,
   BookOpen,
   Brain,
-  ChevronRight,
   CircleHelp,
   Loader2,
   MessageCircle,
   Plus,
   Settings2,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 import { isTauri, invoke } from "@tauri-apps/api/core";
@@ -39,6 +37,7 @@ import { MemoryPage } from "./components/MemoryPage";
 import { ReminderPage } from "./components/ReminderPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { ConfirmDelete, ErrorNotice } from "./components/common";
+import { BaiAvatar } from "./components/BaiAvatar";
 
 type Page = "chat" | "learning" | "memories" | "reminders" | "settings";
 const pages: { id: Page; label: string; icon: typeof Brain }[] = [
@@ -49,6 +48,9 @@ const pages: { id: Page; label: string; icon: typeof Brain }[] = [
 ];
 
 export function App() {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem("bai-sidebar-collapsed") === "true",
+  );
   const [page, setPage] = useState<Page>("chat");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -140,7 +142,7 @@ export function App() {
     return (
       <div className="boot-screen">
         <div className="brand-icon large">
-          <Sparkles size={27} />
+          <BaiAvatar />
         </div>
         <h1>Bai</h1>
         <p>
@@ -187,34 +189,65 @@ export function App() {
       </div>
     );
   return (
-    <div className="app-shell">
-      <aside className="sidebar" aria-label="应用导航与历史对话">
-        <button className="brand" onClick={() => navigate("chat")}>
-          <div className="brand-icon">
-            <Sparkles size={19} />
+    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+      <aside
+        id="bai-sidebar"
+        className="sidebar"
+        aria-label="应用导航与历史对话"
+      >
+        <div className="sidebar-heading">
+          <div className="brand">
+            <button
+              className="brand-avatar"
+              aria-label={sidebarCollapsed ? "展开侧栏" : "收起侧栏"}
+              title={sidebarCollapsed ? "展开侧栏" : "收起侧栏"}
+              aria-expanded={!sidebarCollapsed}
+              aria-controls="bai-sidebar"
+              onClick={() => {
+                const collapsed = !sidebarCollapsed;
+                setSidebarCollapsed(collapsed);
+                localStorage.setItem(
+                  "bai-sidebar-collapsed",
+                  String(collapsed),
+                );
+              }}
+            >
+              <span className="brand-icon">
+                <BaiAvatar />
+              </span>
+            </button>
+            <button
+              className="brand-home"
+              aria-label="返回对话"
+              onClick={() => {
+                setConversationId(null);
+                navigate("chat");
+              }}
+            >
+              <strong>Bai</strong>
+              <small>你的日常小帮手</small>
+            </button>
           </div>
-          <div>
-            <strong>
-              Bai<span>Agent</span>
-            </strong>
-            <small>你的个人助手</small>
-          </div>
-        </button>
+        </div>
         <Button
           className="new-chat-button"
-          variant="outline"
+          aria-label="开启新对话"
+          title={sidebarCollapsed ? "开启新对话" : undefined}
           onClick={() => {
             setConversationId(null);
             navigate("chat");
           }}
         >
-          <Plus size={16} />
-          新的对话
+          <span>开启新对话</span>
+          <Plus size={16} aria-hidden="true" />
         </Button>
         <nav className="main-navigation" aria-label="主导航">
           {pages.map((value) => (
             <button
               className={page === value.id ? "active" : ""}
+              aria-current={page === value.id ? "page" : undefined}
+              aria-label={value.label}
+              title={sidebarCollapsed ? value.label : undefined}
               key={value.id}
               onClick={() => navigate(value.id)}
             >
@@ -231,7 +264,9 @@ export function App() {
           ))}
         </nav>
         <div className="conversation-sidebar">
-          <p className="sidebar-label">最近对话</p>
+          <p className="sidebar-label">
+            最近对话 <span>{conversations.length}</span>
+          </p>
           {conversations.length ? (
             conversations.slice(0, 15).map((value) => (
               <div
@@ -239,12 +274,19 @@ export function App() {
                 key={value.id}
               >
                 <button
+                  title={value.title}
+                  aria-current={
+                    page === "chat" && conversationId === value.id
+                      ? "page"
+                      : undefined
+                  }
                   onClick={() => {
                     setConversationId(value.id);
                     navigate("chat");
                   }}
                 >
-                  {value.title}
+                  <MessageCircle size={14} />
+                  <span>{value.title}</span>
                 </button>
                 <button
                   aria-label={`删除对话 ${value.title}`}
@@ -261,43 +303,28 @@ export function App() {
         <div className="sidebar-footer">
           <button
             className={page === "settings" ? "active" : ""}
+            aria-label="连接与设置"
+            title={sidebarCollapsed ? "连接与设置" : undefined}
+            aria-current={page === "settings" ? "page" : undefined}
             onClick={() => navigate("settings")}
           >
             <Settings2 size={18} />
             <span>连接与设置</span>
             {!settings.model_configured && <span className="setup-dot" />}
           </button>
-          <button onClick={() => setInfo(true)}>
+          <button
+            onClick={() => setInfo(true)}
+            aria-label="关于这个空间"
+            title={sidebarCollapsed ? "关于这个空间" : undefined}
+          >
             <CircleHelp size={17} />
             <span>关于这个空间</span>
           </button>
-          <div className="profile">
-            <div>白</div>
-            <span>
-              <strong>我的空间</strong>
-              <small>本机保存 · 私人使用</small>
-            </span>
-          </div>
         </div>
       </aside>
       <main className="main-panel">
         <header className="app-topbar">
-          <div>
-            <span>我的空间</span>
-            <ChevronRight size={13} />
-            <strong>
-              {page === "settings"
-                ? "连接与设置"
-                : pages.find((x) => x.id === page)?.label}
-            </strong>
-          </div>
           <div className="topbar-right">
-            <span className="local-indicator">
-              <i />
-              {settings.model_name === "mock-test"
-                ? "隔离测试 · 模拟接口"
-                : "本机空间"}
-            </span>
             <button
               className="bell-button"
               aria-label="查看提醒"
@@ -314,8 +341,10 @@ export function App() {
               conversationId={conversationId}
               onConversation={setConversationId}
               settings={settings}
-              refresh={refresh}
               goals={goals}
+              reminders={reminders}
+              memories={memories}
+              refresh={refresh}
               onAction={navigate}
             />
           )}{" "}
@@ -332,6 +361,7 @@ export function App() {
             <MemoryPage
               key={`memories-${createKey}`}
               memories={memories}
+              memoryMode={settings.memory_mode}
               refresh={refresh}
               createRequested={createKey}
             />
@@ -363,7 +393,9 @@ export function App() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>你的个人空间</DialogTitle>
-            <DialogDescription>Bai Agent · 0.1.0 开发版</DialogDescription>
+            <DialogDescription>
+              Bai Agent · 0.1.0{import.meta.env.DEV ? " 开发版" : ""}
+            </DialogDescription>
           </DialogHeader>
           <div className="about-copy">
             <p>一个帮你查资料、逐步学习、记住重要信息和安排提醒的个人助手。</p>

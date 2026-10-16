@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Cable,
+  Brain,
   Check,
   Eye,
   KeyRound,
@@ -27,6 +28,7 @@ export function SettingsPage({
   const [key, setKey] = useState("");
   const [searchKey, setSearchKey] = useState("");
   const [vision, setVision] = useState(settings.vision_enabled);
+  const [memoryMode, setMemoryMode] = useState(settings.memory_mode);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -44,6 +46,7 @@ export function SettingsPage({
         search_key: clearSearch ? "" : searchKey || null,
         vision_enabled: vision,
         timezone: "Asia/Shanghai",
+        memory_mode: memoryMode,
       });
       onSaved(value);
       setKey("");
@@ -66,12 +69,12 @@ export function SettingsPage({
         <div>
           <p className="eyebrow">让 Bai 连接到你的工具</p>
           <h1>连接与设置</h1>
-          <p>配置一次，之后就可以开始对话和学习。</p>
+          <p>配置模型后，Bai 就能在对话中按需调用工具。</p>
         </div>
       </div>
       {error && <ErrorNotice message={error} />}
       {notice && (
-        <div className="success-notice">
+        <div className="success-notice" role="status">
           <Check size={17} />
           {notice}
         </div>
@@ -157,7 +160,7 @@ export function SettingsPage({
           <Search size={20} />
           <div>
             <h2>联网查资料</h2>
-            <p>接入 Tavily，获取搜索结果与网页正文。</p>
+            <p>配置 Tavily 后，Agent 会自动搜索资料、读取网页。</p>
           </div>
           <span
             className={`connection-label ${settings.search_configured ? "ready" : ""}`}
@@ -180,6 +183,9 @@ export function SettingsPage({
               settings.search_configured ? "已保存；留空保持原密钥" : "tvly-…"
             }
           />
+          <p className="field-hint">
+            天气、计算器、日期与时区、单位换算已内置，无需这项密钥。
+          </p>
           {settings.search_configured && (
             <button
               className="text-button danger"
@@ -191,6 +197,29 @@ export function SettingsPage({
               {clearSearch ? "保存后清除密钥" : "清除已保存的密钥"}
             </button>
           )}
+        </div>
+      </section>
+      <section className="settings-section">
+        <div className="section-title">
+          <Brain size={20} />
+          <div>
+            <h2>记忆</h2>
+            <p>私密信息和推测内容会先请你确认。</p>
+          </div>
+        </div>
+        <div className="form-field">
+          <Label htmlFor="memory-mode">保存方式</Label>
+          <select
+            id="memory-mode"
+            className="native-select"
+            value={memoryMode}
+            onChange={(event) =>
+              setMemoryMode(event.target.value as Settings["memory_mode"])
+            }
+          >
+            <option value="auto">自动记忆 · 自动保存明确的稳定偏好</option>
+            <option value="confirm">每次确认 · 整理后由你决定是否记住</option>
+          </select>
         </div>
       </section>
       <div className="settings-footer">

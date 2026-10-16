@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $baiRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $baiRoot
-$baiExecutable = Join-Path $baiRoot 'src-tauri\target\debug\bai-agent.exe'
+$baiExecutable = Join-Path $baiRoot '.local-data\cargo-ui-review\debug\bai-agent.exe'
 $baiRunning = Get-Process -Name 'bai-agent' -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $baiExecutable }
 if ($baiRunning) {
     Start-Process -FilePath $baiExecutable -WindowStyle Hidden

@@ -1,0 +1,17 @@
+{
+  "variants": 3,
+  "editableSVG": true,
+  "PNG": {
+    "width": 1024,
+    "height": 1024,
+    "transparent": true
+  },
+  "preview": {
+    "width": 1440,
+    "height": 780,
+    "desktopIconPixels": 48
+  },
+  "browserErrors": [],
+  "runtimeIconReplaced": true,
+  "selectedVariant": "A"
+}

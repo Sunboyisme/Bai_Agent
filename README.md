@@ -1,17 +1,25 @@
-# Bai Agent · 0.1.0 开发版
+# Bai Agent · 0.1.0
 
-个人助手，支持查资料、按知识框架逐步学习、保存记忆和安排提醒。当前交付是 **Windows 桌面开发版**。学习可以围绕前端开发、做饭、养猫、游戏等主题展开，内容由你配置的模型生成。
+个人助手，在同一个对话框中查询天气、联网搜索、阅读网页、计算、处理日期与单位换算、保存记忆和安排提醒。Agent 自行选择已封装的工具，必要时连续调用。提供 **Windows x64 安装版** 和桌面开发环境。同时支持按知识框架逐步学习，内容由你配置的模型生成。
 
-项目位置：`C:\QinBai\草稿\Bai-Agent`。开发路线见 [PLAN.md](PLAN.md)，技术说明见 [docs/architecture.md](docs/architecture.md)。
+项目位置：`C:\QinBai\Personal_Works\Project\261005-Bai-Agent`。开发路线见 [PLAN.md](PLAN.md)，技术说明见 [docs/architecture.md](docs/architecture.md)，界面规范见 [docs/interface.md](docs/interface.md)。
 
-## 启动
+## 安装版
+
+安装包位于 `releases/0.1.0/Bai-Agent_0.1.0_x64-setup.exe`，同目录 `SHA256SUMS.txt` 可校验文件。安装版包含前端、Python 后端及依赖，无需安装 Python、Node.js 或 Rust。缺少 WebView2 时安装器会联网下载运行环境。图标采用用户选定的 A 版「奶油方糖」。
+
+安装数据默认保存在 `%LOCALAPPDATA%\com.qinbai.baiagent`，不写入安装目录；开发版个人数据、API 密钥和测试记录不放入安装包。开发版与安装版默认使用不同的数据目录；使用前先退出另一个 Bai，避免占用同一个本机服务端口。安装版首次使用需要配置自己的模型连接。
+
+版本交付、验证范围与构建说明见 [0.1.0 发布记录](docs/releases/0.1.0.md)。
+
+## 开发启动
 
 本机依赖已经安装。双击项目根目录的 **`启动Bai-Agent.cmd`**。启动器在后台运行开发服务，第一次编译或依赖变化后需要等待；再次启动会打开已有窗口。
 
 也可以在 PowerShell 中运行：
 
 ```powershell
-Set-Location -LiteralPath 'C:\QinBai\草稿\Bai-Agent'
+Set-Location -LiteralPath 'C:\QinBai\Personal_Works\Project\261005-Bai-Agent'
 pnpm desktop:dev
 ```
 
@@ -25,24 +33,33 @@ uv sync --project backend --frozen
 pnpm desktop:dev
 ```
 
-启动日志位于 `.local-data\dev\desktop.log`。当前可执行文件仍依赖本项目、Python 虚拟环境和前端开发服务，不能单独复制给别人当作安装版。
+开发启动日志位于 `.local-data\dev\desktop.log`。开发可执行文件依赖本项目、Python 虚拟环境和前端开发服务；分发时使用上方安装包。
 
 ## 第一次使用
 
 1. 打开「连接与设置」，填写服务商的 **OpenAI 兼容接口地址、模型名称、API 密钥**。接口地址一般包含 `/v1`，以服务商说明为准。模型需要支持 Chat Completions 和工具调用。点击「保存并测试模型」会发起一次真实模型请求。
 2. 需要提交图片时，确认模型支持图片，再勾选图片输入。不要仅依据模型名称推测是否支持。
-3. 需要联网查资料时，另外填写 **Tavily API 密钥**。模型密钥与搜索密钥是两个不同配置。没有搜索密钥时，Bai 会报告联网不可用。
+3. 天气、计算器、日期与时区、单位换算已内置，无需额外工具密钥。需要联网搜索和读取网页时，另外填写 **Tavily API 密钥**。模型密钥与搜索密钥是两个不同配置；未配置搜索不影响其他内置工具。
 4. 在对话中说「我想系统学习前端，从零开始，目标是做一个个人网站」，或打开「学习 → 新的学习目标」，填写主题、目标和基础。
 
 学习会保存模块、前置关系、知识点和练习标准。选择一个知识点后，获得讲解、示例与练习；用文字、代码片段或图片提交，模型给出有依据的反馈。练习未通过可以补讲并重练；跳过会标记「尚未验证」。学习进度与练习等待状态在重启后恢复。通过练习后，可以主动安排次日复习提醒。
 
-在对话中明确说「请记住……」，或在「记忆」页手动保存。自动归纳的候选记忆需要确认，才会进入个人背景。你可以编辑或删除；历史对话单独保留。
+记忆默认自动保存明确、稳定的普通偏好，并提供撤销；敏感信息和推测内容等待确认，临时信息留在当前对话。可在记忆页切换「自动记忆 / 每次确认」，查看来源、编辑或删除。明确说「请记住……」已有授权，直接保存；历史对话单独保留。规则见 [记忆保存与确认](docs/memory.md)。
 
 提醒支持一次、每天、每周，也可完成、取消或延后。界面使用**北京时间**。电脑开机且 Bai 在托盘运行时，提醒可以通过独立窗口显示，同时尝试发送 Windows 通知。应用退出、电脑关机或休眠时不能按时弹出；恢复运行后补充一次逾期提示，重复事项跳到下一次时间，不逐条轰炸历史遗漏。
+
+## 对话中的工具
+
+直接发送「广州未来三天会下雨吗」「帮我算 `(199 + 89) * 0.85`」「30 天后是星期几」「5 英里是多少公里」「明天早上九点提醒我读书」等请求即可。工具菜单用于查看内置能力、填入示例和检查搜索配置，不需要先选择工具才能提问。一次请求可以组合多个工具。
+
+当前封装了 13 个工具。天气接入 [Open-Meteo](https://open-meteo.com/en/docs)，同名地点会要求确认；查询失败会返回错误，不使用模型知识伪造天气。回答下方可以展开最近一轮的工具结果，重新打开对话后仍可查看。
+
+开发接入说明见 [docs/tools.md](docs/tools.md)。
 
 ## 数据与密钥
 
 - 正常开发空间：`.local-data\dev`。SQLite 保存对话、课程、练习、记忆、提醒和执行记录；`checkpoints.sqlite` 保存 LangGraph 状态，图片保存在 `attachments`。
+- 安装版空间：`%LOCALAPPDATA%\com.qinbai.baiagent`。后端日志为该目录下的 `backend.log`；更新程序时数据保留在用户目录。
 - API 密钥通过 `keyring` 写入 Windows 凭据存储，不写进数据库、前端代码或 Git。接口地址不能内嵌用户名和密码。留空密钥表示保留已有配置，勾选清除才删除。
 - 本机 API 仅监听 `127.0.0.1:8766`，前端开发服务使用 `127.0.0.1:5186`。不要把当前版本的服务直接暴露到公网。
 - `.local-data\review` 是开发验证数据，连接本地模拟接口时会显示「隔离测试 · 模拟接口」。正常空间没有内置模拟回复，也不会自动调用任何外部模型。
@@ -50,7 +67,7 @@ pnpm desktop:dev
 
 ## 当前边界
 
-当前尚未实现云端账号、跨设备同步、iPhone 客户端、手机推送、关机后的持续提醒、安装包及 App Store 上架。下一阶段按 PLAN.md 接入云端，然后做 iPhone 客户端。
+当前尚未实现云端账号、跨设备同步、iPhone 客户端、手机推送、关机后的持续提醒及 App Store 上架。下一阶段按 PLAN.md 接入云端，然后做 iPhone 客户端。
 
 文字与图片反馈属于模型分析，本版本不自动运行用户代码，也不现场验证操作结果。联网搜索返回链接和摘要，读取正文失败时工具明确报告失败。真实教学质量、来源选择和特定服务商兼容性需要接入你的模型后评估。
 
@@ -58,7 +75,7 @@ pnpm desktop:dev
 
 ```powershell
 # 后端自动测试：自动使用独立的临时目录，不打开个人数据库
-uv run --project backend pytest backend/tests -q
+.\backend\.venv\Scripts\python.exe -m pytest backend/tests -q
 # SSE 解码与错误呈现测试
 pnpm test
 # 生成 API 类型、检查类型并构建前端
@@ -66,13 +83,15 @@ pnpm api:types
 pnpm build
 # Rust 检查，不打包
 cargo check --manifest-path src-tauri/Cargo.toml
+# 封装后端、构建 Windows x64 NSIS 安装包并复制交付文件
+pnpm release:windows
 ```
 
 浏览器端到端测试使用本地模拟模型。先退出桌面应用，再分别在三个终端启动下列服务，每个终端设置相同的 `BAI_DATA_DIR`：
 
 ```powershell
 # 终端一：隔离的后端
-$env:BAI_DATA_DIR = 'C:\QinBai\草稿\Bai-Agent\.local-data\review'
+$env:BAI_DATA_DIR = 'C:\QinBai\Personal_Works\Project\261005-Bai-Agent\.local-data\review'
 $env:BAI_MODEL_API_KEY = 'synthetic-key'
 uv run --project backend uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8766 --no-access-log
 # 终端二：前端（也设置上面的 BAI_DATA_DIR）

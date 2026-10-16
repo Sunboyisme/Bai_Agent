@@ -39,6 +39,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Tools */
+        get: operations["get_tools_api_v1_tools_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Tools */
+        get: operations["get_run_tools_api_v1_runs__run_id__tools_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/memory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Memory Settings */
+        patch: operations["update_memory_settings_api_v1_settings_memory_patch"];
+        trace?: never;
+    };
     "/api/v1/settings/test": {
         parameters: {
             query?: never;
@@ -335,6 +386,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/memories/{memory_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Memory */
+        post: operations["confirm_memory_api_v1_memories__memory_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/memory-changes/{change_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo Memory */
+        post: operations["undo_memory_api_v1_memory_changes__change_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reminders": {
         parameters: {
             query?: never;
@@ -575,6 +660,11 @@ export interface components {
             /** State */
             state: string;
         };
+        /** MemoryConfirm */
+        MemoryConfirm: {
+            /** Revision */
+            revision: number;
+        };
         /** MemoryCreate */
         MemoryCreate: {
             /** Content */
@@ -596,6 +686,8 @@ export interface components {
              * @enum {string}
              */
             state: "confirmed" | "candidate";
+            /** Revision */
+            revision?: number | null;
         };
         /** MemoryRead */
         MemoryRead: {
@@ -613,6 +705,26 @@ export interface components {
             source: string;
             /** State */
             state: string;
+            /** Evidence */
+            evidence: string;
+            /** Review Reason */
+            review_reason: string;
+            /** Source Conversation Id */
+            source_conversation_id: string | null;
+            /** Source Message Id */
+            source_message_id: string | null;
+            /** Replaces Id */
+            replaces_id: string | null;
+            /** Revision */
+            revision: number;
+        };
+        /** MemorySettingsUpdate */
+        MemorySettingsUpdate: {
+            /**
+             * Memory Mode
+             * @enum {string}
+             */
+            memory_mode: "auto" | "confirm";
         };
         /** MessageRead */
         MessageRead: {
@@ -776,6 +888,11 @@ export interface components {
             vision_enabled: boolean;
             /** Timezone */
             timezone: string;
+            /**
+             * Memory Mode
+             * @enum {string}
+             */
+            memory_mode: "auto" | "confirm";
             /** Model Configured */
             model_configured: boolean;
             /** Search Configured */
@@ -804,6 +921,8 @@ export interface components {
              * @default Asia/Shanghai
              */
             timezone: string;
+            /** Memory Mode */
+            memory_mode?: ("auto" | "confirm") | null;
         };
         /** Submission */
         Submission: {
@@ -813,6 +932,19 @@ export interface components {
             answer: string;
             /** Attachment Ids */
             attachment_ids?: string[];
+        };
+        /** ToolRead */
+        ToolRead: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Available */
+            available: boolean;
+            /** Note */
+            note: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -886,6 +1018,90 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_tools_api_v1_tools_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolRead"][];
+                };
+            };
+        };
+    };
+    get_run_tools_api_v1_runs__run_id__tools_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_memory_settings_api_v1_settings_memory_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemorySettingsUpdate"];
             };
         };
         responses: {
@@ -1605,6 +1821,72 @@ export interface operations {
             header?: never;
             path: {
                 memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_memory_api_v1_memories__memory_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryConfirm"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_memory_api_v1_memory_changes__change_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                change_id: string;
             };
             cookie?: never;
         };

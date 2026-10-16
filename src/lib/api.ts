@@ -3,6 +3,7 @@ import type { components } from "./api.generated";
 
 type Schemas = components["schemas"];
 export type Settings = Schemas["SettingsRead"];
+export type Tool = Schemas["ToolRead"];
 export type Conversation = Schemas["ConversationRead"];
 export type Message = Schemas["MessageRead"];
 export type Run = Schemas["RunRead"];

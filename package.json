@@ -9,6 +9,8 @@
     "desktop:dev": "tauri dev",
     "backend:dev": "uv run --project backend uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8766",
     "build": "tsc -b && vite build",
+    "backend:bundle": "pwsh -NoProfile -File scripts/build-backend.ps1",
+    "release:windows": "pwsh -NoProfile -File scripts/build-installer.ps1",
     "test": "vitest run",
     "api:types": "uv run --project backend python scripts/export-openapi.py && openapi-typescript .local-data/openapi.json -o src/lib/api.generated.ts",
     "tauri": "tauri"

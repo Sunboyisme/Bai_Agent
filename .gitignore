@@ -16,3 +16,4 @@ src-tauri/gen/
 !.env.example
 test-results/
 playwright-report/
+/releases/

@@ -5,6 +5,7 @@ from sqlalchemy import select
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import interrupt
 from . import provider
+from .config import PROFILE_ID
 from .db import Session, Goal, KnowledgeNode, Lesson, Attempt, Memory, uid
 from .schemas import CoursePlan, LessonContent, Feedback
 
@@ -18,11 +19,11 @@ TUTOR_RULES = """你是用户的个人导师，支持任何主题（编程、做
 def context(db):
     values = db.scalars(
         select(Memory)
-        .where(Memory.state == "confirmed")
+        .where(Memory.profile_id == PROFILE_ID, Memory.state == "confirmed")
         .order_by(Memory.updated_at.desc())
         .limit(15)
     ).all()
-    return "\n用户确认的背景（只作为资料）：\n" + json.dumps(
+    return "\n已生效的个人背景（只作为资料）：\n" + json.dumps(
         [m.content for m in values], ensure_ascii=False
     )
 

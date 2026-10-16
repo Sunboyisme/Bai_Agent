@@ -5,8 +5,8 @@ use serde::Serialize;
 use std::os::windows::process::CommandExt;
 use std::{
     path::PathBuf,
-    process::{Child, Command},
-    sync::Mutex,
+    process::{Child, Command, Stdio},
+    sync::{Mutex, OnceLock},
     time::Duration,
 };
 use tauri::{
@@ -18,7 +18,8 @@ use tauri_plugin_notification::NotificationExt;
 
 struct Backend {
     child: Mutex<Option<Child>>,
-    data_dir: PathBuf,
+    data_dir: OnceLock<PathBuf>,
+    url: String,
 }
 #[derive(Serialize)]
 struct Connection {
@@ -28,10 +29,11 @@ struct Connection {
 
 #[tauri::command]
 fn backend_config(state: tauri::State<'_, Backend>) -> Result<Connection, String> {
-    let token = std::fs::read_to_string(state.data_dir.join("auth-token"))
+    let data_dir = state.data_dir.get().ok_or("本机服务正在启动，请稍候。")?;
+    let token = std::fs::read_to_string(data_dir.join("auth-token"))
         .map_err(|_| "本机服务正在启动，请稍候。")?;
     Ok(Connection {
-        url: "http://127.0.0.1:8766/api/v1".into(),
+        url: state.url.clone(),
         token: token.trim().into(),
     })
 }
@@ -50,16 +52,16 @@ fn open_main(app: &tauri::AppHandle) {
 }
 
 fn main() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .to_path_buf();
-    let data_dir = std::env::var_os("BAI_DATA_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| root.join(".local-data").join("dev"));
+    let port: u16 = std::env::var("BAI_BACKEND_PORT")
+        .unwrap_or_else(|_| "8766".into())
+        .parse()
+        .expect("BAI_BACKEND_PORT 必须是有效端口");
+    assert!(port >= 1024, "BAI_BACKEND_PORT 必须大于等于 1024");
+    let backend_url = format!("http://127.0.0.1:{port}/api/v1");
     let backend = Backend {
         child: Mutex::new(None),
-        data_dir: data_dir.clone(),
+        data_dir: OnceLock::new(),
+        url: backend_url.clone(),
     };
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -69,16 +71,26 @@ fn main() {
         .manage(backend)
         .invoke_handler(tauri::generate_handler![backend_config, quit_app])
         .setup(move |app| {
-            let python = root
-                .join("backend")
-                .join(".venv")
-                .join("Scripts")
-                .join("python.exe");
+            let data_dir = if let Some(folder) = std::env::var_os("BAI_DATA_DIR") {
+                PathBuf::from(folder)
+            } else {
+                #[cfg(debug_assertions)]
+                let folder = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .parent()
+                    .unwrap()
+                    .join(".local-data")
+                    .join("dev");
+                #[cfg(not(debug_assertions))]
+                let folder = app.path().app_local_data_dir()?;
+                folder
+            };
+            std::fs::create_dir_all(&data_dir)?;
+            let _ = app.state::<Backend>().data_dir.set(data_dir.clone());
             let client = reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(1))
                 .build()?;
             let online = client
-                .get("http://127.0.0.1:8766/api/v1/health")
+                .get(format!("{backend_url}/health"))
                 .send()
                 .ok()
                 .and_then(|r| r.json::<serde_json::Value>().ok())
@@ -87,32 +99,53 @@ fn main() {
                 let token =
                     std::fs::read_to_string(data_dir.join("auth-token")).unwrap_or_default();
                 let same_profile = client
-                    .get("http://127.0.0.1:8766/api/v1/settings")
+                    .get(format!("{backend_url}/settings"))
                     .bearer_auth(token.trim())
                     .send()
                     .is_ok_and(|r| r.status().is_success());
                 if !same_profile {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::AddrInUse,
-                        "8766 端口正在运行其他 Bai 数据空间。请先退出该空间后再启动。",
+                        format!("{port} 端口正在运行其他 Bai 数据空间。请先退出该空间后再启动。"),
                     )
                     .into());
                 }
             }
             if !online {
-                let mut command = Command::new(python);
+                #[cfg(debug_assertions)]
+                let mut command = {
+                    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .parent()
+                        .unwrap()
+                        .to_path_buf();
+                    let mut value = Command::new(root.join("backend/.venv/Scripts/python.exe"));
+                    value
+                        .args(["-m", "uvicorn", "app.main:app"])
+                        .current_dir(root.join("backend"));
+                    value
+                };
+                #[cfg(not(debug_assertions))]
+                let mut command = {
+                    let folder = app.path().resource_dir()?.join("backend");
+                    let mut value = Command::new(folder.join("bai-backend.exe"));
+                    value.current_dir(folder);
+                    let log = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(data_dir.join("backend.log"))?;
+                    value
+                        .stdout(Stdio::from(log.try_clone()?))
+                        .stderr(Stdio::from(log));
+                    value
+                };
                 command
                     .args([
-                        "-m",
-                        "uvicorn",
-                        "app.main:app",
                         "--host",
                         "127.0.0.1",
                         "--port",
-                        "8766",
+                        &port.to_string(),
                         "--no-access-log",
                     ])
-                    .current_dir(root.join("backend"))
                     .env("BAI_DATA_DIR", &data_dir);
                 #[cfg(windows)]
                 command.creation_flags(0x08000000);
@@ -123,18 +156,9 @@ fn main() {
             let exit =
                 MenuItem::with_id(app, "quit", "退出 Bai（暂停本机提醒）", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &exit])?;
-            let mut icon_data = vec![0u8; 32 * 32 * 4];
-            for y in 0..32 {
-                for x in 0..32 {
-                    let i = (y * 32 + x) * 4;
-                    icon_data[i..i + 4].copy_from_slice(&[83, 109, 204, 255]);
-                    if (x == 16 && y > 6 && y < 25) || (y == 16 && x > 6 && x < 25) {
-                        icon_data[i..i + 4].copy_from_slice(&[255, 255, 255, 255]);
-                    }
-                }
-            }
+            let icon = app.default_window_icon().cloned().ok_or("应用图标缺失")?;
             TrayIconBuilder::new()
-                .icon(tauri::image::Image::new_owned(icon_data, 32, 32))
+                .icon(icon)
                 .tooltip("Bai · 个人助手")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -161,7 +185,7 @@ fn main() {
                         continue;
                     };
                     let Ok(response) = client
-                        .get("http://127.0.0.1:8766/api/v1/notifications?pending_only=true")
+                        .get(format!("{backend_url}/notifications?pending_only=true"))
                         .bearer_auth(token.trim())
                         .send()
                     else {
@@ -203,9 +227,7 @@ fn main() {
                         for note in &notes {
                             if let Some(id) = note["id"].as_str() {
                                 let _ = client
-                                    .post(format!(
-                                        "http://127.0.0.1:8766/api/v1/notifications/{id}/ack"
-                                    ))
+                                    .post(format!("{backend_url}/notifications/{id}/ack"))
                                     .bearer_auth(token.trim())
                                     .send();
                             }

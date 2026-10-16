@@ -41,6 +41,7 @@ class Settings(Base):
     model_name: Mapped[str] = mapped_column(String(200), default="")
     vision_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     timezone: Mapped[str] = mapped_column(String(100), default="Asia/Shanghai")
+    memory_mode: Mapped[str] = mapped_column(String(20), default="auto")
 
 
 class Conversation(Record, Base):
@@ -136,6 +137,25 @@ class Memory(Record, Base):
     category: Mapped[str] = mapped_column(String(30), default="fact")
     source: Mapped[str] = mapped_column(Text, default="用户手动记录")
     state: Mapped[str] = mapped_column(String(20), default="confirmed")
+    evidence: Mapped[str] = mapped_column(Text, default="")
+    review_reason: Mapped[str] = mapped_column(String(300), default="")
+    source_conversation_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True
+    )
+    source_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    replaces_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    replaces_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class MemoryChange(Record, Base):
+    __tablename__ = "memory_changes"
+    memory_id: Mapped[str] = mapped_column(String(36), index=True)
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    source_message_id: Mapped[str] = mapped_column(String(36), index=True)
+    before: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    after: Mapped[dict] = mapped_column(JSON)
+    undone: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Reminder(Record, Base):

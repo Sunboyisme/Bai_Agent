@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Brain, Check, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Brain, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,9 +12,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { api, type Memory } from "@/lib/api";
-import { dateTime } from "@/lib/utils";
+import { api, type Memory, type Settings } from "@/lib/api";
 import { ConfirmDelete, EmptyState, ErrorNotice } from "./common";
+import { MemoryReview, MemorySource } from "./MemoryFeedback";
 
 const categories: Record<string, string> = {
   fact: "个人事实",
@@ -23,10 +23,12 @@ const categories: Record<string, string> = {
 };
 export function MemoryPage({
   memories,
+  memoryMode,
   refresh,
   createRequested,
 }: {
   memories: Memory[];
+  memoryMode: Settings["memory_mode"];
   refresh: () => Promise<void>;
   createRequested?: number;
 }) {
@@ -38,6 +40,19 @@ export function MemoryPage({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState<Memory | null>(null);
+  const [changingMode, setChangingMode] = useState(false);
+  async function changeMode(mode: Settings["memory_mode"]) {
+    setChangingMode(true);
+    setError("");
+    try {
+      await api("/settings/memory", "PATCH", { memory_mode: mode });
+      await refresh();
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setChangingMode(false);
+    }
+  }
   function edit(value?: Memory) {
     setEditing(value || null);
     setContent(value?.content || "");
@@ -55,7 +70,8 @@ export function MemoryPage({
           content,
           category,
           source: editing?.source || "用户手动记录",
-          state: editing?.state || "confirmed",
+          state: "confirmed",
+          revision: editing?.revision,
         },
       );
       await refresh();
@@ -64,19 +80,6 @@ export function MemoryPage({
       setError((error as Error).message);
     } finally {
       setBusy(false);
-    }
-  }
-  async function confirm(value: Memory) {
-    try {
-      await api(`/memories/${value.id}`, "PUT", {
-        content: value.content,
-        category: value.category,
-        source: value.source,
-        state: "confirmed",
-      });
-      await refresh();
-    } catch (error) {
-      setError((error as Error).message);
     }
   }
   async function remove() {
@@ -89,7 +92,9 @@ export function MemoryPage({
       setError((error as Error).message);
     }
   }
-  const candidates = memories.filter((x) => x.state === "candidate");
+  const candidates = memories.filter(
+    (x) => x.state === "candidate" && x.content.includes(query),
+  );
   const values = memories.filter(
     (x) => x.state === "confirmed" && x.content.includes(query),
   );
@@ -97,14 +102,27 @@ export function MemoryPage({
     <div className="page-content">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">让每次交流都从了解你开始</p>
           <h1>记忆</h1>
-          <p>你决定 Bai 记住什么，也可以随时修改或删除。</p>
+          <p>查看、修改或删除 Bai 记住的信息。</p>
         </div>
-        <Button onClick={() => edit()}>
-          <Plus size={16} />
-          添加记忆
-        </Button>
+        <div className="memory-heading-actions">
+          <select
+            className="native-select"
+            aria-label="记忆保存方式"
+            value={memoryMode}
+            disabled={changingMode}
+            onChange={(event) =>
+              void changeMode(event.target.value as Settings["memory_mode"])
+            }
+          >
+            <option value="auto">自动记忆</option>
+            <option value="confirm">每次确认</option>
+          </select>
+          <Button onClick={() => edit()}>
+            <Plus size={16} />
+            添加记忆
+          </Button>
+        </div>
       </div>
       {error && <ErrorNotice message={error} />}
       {candidates.length > 0 && (
@@ -112,38 +130,19 @@ export function MemoryPage({
           <h2>
             等待你确认 <span>{candidates.length}</span>
           </h2>
-          <p>这些内容由交流归纳，确认后才会作为你的个人背景。</p>
           {candidates.map((value) => (
-            <div className="candidate-row" key={value.id}>
-              <p>{value.content}</p>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void confirm(value)}
-              >
-                <Check size={14} />
-                确认记住
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label="删除候选记忆"
-                onClick={() => setDeleting(value)}
-              >
-                <Trash2 size={15} />
-              </Button>
-            </div>
+            <MemoryReview key={value.id} memory={value} refresh={refresh} />
           ))}
         </section>
       )}
-      {memories.some((x) => x.state === "confirmed") && (
+      {memories.length > 0 && (
         <div className="search-field">
           <Search size={17} />
           <Input
             aria-label="搜索记忆"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索已确认的记忆…"
+            placeholder="搜索记忆…"
           />
         </div>
       )}
@@ -175,10 +174,7 @@ export function MemoryPage({
                 </div>
               </div>
               <p>{value.content}</p>
-              <div className="memory-source">
-                {value.source}
-                <span>{dateTime(value.updated_at)}</span>
-              </div>
+              <MemorySource memory={value} />
             </article>
           ))}
         </div>
@@ -242,7 +238,7 @@ export function MemoryPage({
               disabled={!content.trim() || busy}
               onClick={() => void save()}
             >
-              保存记忆
+              {busy ? "正在保存…" : "保存记忆"}
             </Button>
           </DialogFooter>
         </DialogContent>

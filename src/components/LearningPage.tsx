@@ -7,12 +7,13 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Circle,
   Compass,
   FileQuestion,
   GraduationCap,
   Loader2,
   Plus,
+  PanelLeftClose,
+  PanelLeftOpen,
   RotateCcw,
   SkipForward,
   Sparkles,
@@ -48,6 +49,7 @@ import {
   nodeStatus,
   ConfirmDelete,
 } from "./common";
+import { BaiAvatar } from "./BaiAvatar";
 
 export function LearningPage({
   goals,
@@ -78,6 +80,18 @@ export function LearningPage({
   const [images, setImages] = useState<Attachment[]>([]);
   const [hints, setHints] = useState(false);
   const [deleting, setDeleting] = useState<Goal | null>(null);
+  const [outlineOpen, setOutlineOpen] = useState(() =>
+    typeof window.matchMedia === "function"
+      ? window.matchMedia("(min-width: 1100px)").matches
+      : true,
+  );
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 1100px)");
+    const resize = () => setOutlineOpen(media.matches);
+    media.addEventListener("change", resize);
+    return () => media.removeEventListener("change", resize);
+  }, []);
   const watch = useRef<AbortController | null>(null);
   const activeNode = useRef(nodeId);
   activeNode.current = nodeId;
@@ -291,15 +305,18 @@ export function LearningPage({
       !["passed", "skipped"].includes(x.status) &&
       x.ordinal > (node?.ordinal ?? -1),
   );
+  const currentIndex =
+    goal?.nodes.findIndex((value) => value.id === nodeId) ?? -1;
+  const previous = currentIndex > 0 ? goal?.nodes[currentIndex - 1] : undefined;
+  const passedCount =
+    goal?.nodes.filter((value) => value.status === "passed").length ?? 0;
   return (
     <div className={`learning-page ${goal ? "has-course" : "page-content"}`}>
       {!goal ? (
         <>
           <div className="page-heading">
             <div>
-              <p className="eyebrow">从想学，到真正会用</p>
               <h1>学习</h1>
-              <p>先看总体框架，再用一个个小练习把知识连起来。</p>
             </div>
             <Button onClick={() => setOpen(true)}>
               <Plus size={16} />
@@ -331,7 +348,14 @@ export function LearningPage({
                     </div>
                     <h2>{value.title}</h2>
                     <p>{value.objective || "从基础入门，逐步完成实际练习。"}</p>
-                    <div className="progress-track">
+                    <div
+                      className="progress-track"
+                      role="progressbar"
+                      aria-label={`${value.title} 的练习进度`}
+                      aria-valuenow={passed}
+                      aria-valuemin={0}
+                      aria-valuemax={Math.max(1, value.nodes.length)}
+                    >
                       <span
                         style={{
                           width: `${value.nodes.length ? (passed / value.nodes.length) * 100 : 0}%`,
@@ -390,298 +414,405 @@ export function LearningPage({
         </>
       ) : (
         <div className="course-layout">
-          <aside className="course-outline">
-            <button
-              className="back-link"
-              onClick={() => {
-                setGoalId("");
-                setNodeId("");
-                setRun(null);
-                setBusy(false);
-              }}
-            >
-              <ArrowLeft size={15} />
-              所有学习目标
-            </button>
-            <div className="course-title">
-              <span className="eyebrow">你的知识地图</span>
-              <h2>{goal.title}</h2>
-              <p>{goal.objective}</p>
-            </div>
-            <div className="course-progress">
-              <strong>
-                {goal.nodes.filter((x) => x.status === "passed").length}
-              </strong>
-              <span> / {goal.nodes.length} 个知识点练习通过</span>
-            </div>
-            <div className="outline-items">
-              {goal.nodes.map((value, i) => (
-                <div key={value.id}>
-                  {i === 0 || goal.nodes[i - 1].module !== value.module ? (
-                    <p className="module-label">{value.module}</p>
-                  ) : null}
-                  <button
-                    className={`outline-node ${nodeId === value.id ? "active" : ""}`}
-                    disabled={busy}
-                    onClick={() => {
-                      setNodeId(value.id);
-                      setAnswer("");
-                      setImages([]);
-                    }}
-                  >
-                    <span className={`node-symbol ${value.status}`}>
-                      {value.status === "passed" ? (
-                        <Check size={13} />
-                      ) : value.status === "skipped" ? (
-                        <SkipForward size={12} />
-                      ) : (
-                        <Circle size={12} />
-                      )}
-                    </span>
-                    <span>
-                      {value.title}
-                      <small>{nodeStatus[value.status]}</small>
-                    </span>
-                  </button>
-                </div>
-              ))}
-            </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="delete-course"
-              onClick={() => setDeleting(goal)}
-            >
-              <Trash2 size={14} />
-              删除学习目标
-            </Button>
-          </aside>
-          <div className="lesson-content">
-            {notice && (
-              <p className="success-notice" role="status">
-                {notice}
-              </p>
-            )}
-            {error && <ErrorNotice message={error} />}
-            <div className="lesson-topline">
-              <span>{node?.module || "课程规划"}</span>
-              {busy && (
-                <span className="working-label">
-                  <Loader2 size={14} className="spin" />
-                  {run?.kind === "course"
-                    ? "正在建立知识框架"
-                    : run?.kind === "assessment"
-                      ? "正在检查练习"
-                      : "正在准备教学"}
-                  <button
-                    onClick={() => {
-                      if (run) void api(`/runs/${run.id}/cancel`, "POST");
-                    }}
-                  >
-                    停止
-                  </button>
-                </span>
-              )}
-            </div>
-            {!goal.nodes.length ? (
-              <EmptyState
-                icon={Compass}
-                title="准备你的学习路线"
-                action={
-                  <div className="empty-actions">
-                    <Button onClick={() => void plan()} disabled={busy}>
-                      <Sparkles size={15} />
-                      生成知识框架
-                    </Button>
-                    <Button variant="ghost" onClick={onSettings}>
-                      检查模型设置
-                    </Button>
-                  </div>
-                }
+          <header className="course-header">
+            <div className="course-heading">
+              <button
+                className="back-link"
+                onClick={() => {
+                  setGoalId("");
+                  setNodeId("");
+                  setRun(null);
+                  setBusy(false);
+                }}
               >
-                Bai 将根据你的目标与基础，规划模块、知识点和练习。
-              </EmptyState>
-            ) : node ? (
-              <>
-                <div className="lesson-heading">
-                  <span className={`small-label ${node.status}`}>
-                    {nodeStatus[node.status]}
-                  </span>
-                  <h1>{node.title}</h1>
-                  <p>{node.objective}</p>
+                <ArrowLeft size={15} />
+                所有学习目标
+              </button>
+              <div className="course-title">
+                <h2>{goal.title}</h2>
+              </div>
+            </div>
+            <div className="course-header-actions">
+              <div className="course-progress">
+                <span>
+                  <strong>{passedCount}</strong> / {goal.nodes.length} 练习通过
+                </span>
+                <div
+                  className="progress-track"
+                  role="progressbar"
+                  aria-label="课程练习进度"
+                  aria-valuenow={passedCount}
+                  aria-valuemin={0}
+                  aria-valuemax={Math.max(1, goal.nodes.length)}
+                >
+                  <span
+                    style={{
+                      width: `${goal.nodes.length ? (passedCount / goal.nodes.length) * 100 : 0}%`,
+                    }}
+                  />
                 </div>
-                {node.prerequisites.length > 0 && (
-                  <div className="prerequisite-line">
-                    前置知识：
-                    {node.prerequisites
-                      .map((id) => goal.nodes.find((x) => x.id === id)?.title)
-                      .filter(Boolean)
-                      .join("、")}
-                  </div>
-                )}
-                {lesson ? (
-                  <>
-                    <Markdown>{lesson.content}</Markdown>
-                    <section className="exercise-box">
-                      <div className="section-title">
-                        <FileQuestion size={20} />
-                        <div>
-                          <h2>现在轮到你试一试</h2>
-                          <p>可以用文字、代码片段或图片提交。</p>
-                        </div>
-                      </div>
-                      <Markdown>{lesson.exercise}</Markdown>
-                      <div className="exercise-criteria">
-                        <strong>检查标准</strong>
-                        <p>{lesson.criteria}</p>
-                      </div>
-                      {lesson.hints.length > 0 && (
-                        <>
-                          <button
-                            className="text-button"
-                            onClick={() => setHints(!hints)}
-                          >
-                            {hints ? (
-                              <ChevronDown size={14} />
-                            ) : (
-                              <ChevronRight size={14} />
-                            )}
-                            需要一点提示
-                          </button>
-                          {hints && (
-                            <ul className="hint-list">
-                              {lesson.hints.map((hint, i) => (
-                                <li key={i}>{hint}</li>
-                              ))}
-                            </ul>
-                          )}
-                        </>
-                      )}
-                      {lesson.state === "awaiting_submission" ? (
-                        <>
-                          <Textarea
-                            aria-label="练习回答"
-                            rows={5}
-                            value={answer}
-                            onChange={(e) => setAnswer(e.target.value)}
-                            placeholder="写下你的理解、操作结果或代码…"
-                            disabled={busy}
-                          />
-                          <div className="exercise-submit">
-                            <ImagesInput
-                              images={images}
-                              onChange={setImages}
-                              disabled={busy}
-                              onError={setError}
-                              onUploading={setUploading}
-                            />
-                            <Button
-                              disabled={
-                                busy ||
-                                uploading ||
-                                (!answer.trim() && !images.length)
-                              }
-                              onClick={() => void submit()}
-                            >
-                              {busy ? (
-                                <Loader2 size={15} className="spin" />
-                              ) : (
-                                <ArrowRight size={15} />
-                              )}
-                              提交练习
-                            </Button>
-                          </div>
-                        </>
-                      ) : feedback?.explanation ? (
-                        <div
-                          className={`feedback-box ${feedback.passed ? "passed" : "needs-practice"}`}
-                        >
-                          <h3>
-                            {feedback.passed ? (
-                              <CheckCircle2 size={19} />
-                            ) : (
-                              <RotateCcw size={19} />
-                            )}{" "}
-                            {feedback.passed
-                              ? "这次练习通过了"
-                              : "这里还需要再练一练"}
-                          </h3>
-                          <Markdown>{feedback.explanation}</Markdown>
-                          {feedback.gaps?.length ? (
-                            <ul>
-                              {feedback.gaps.map((gap, i) => (
-                                <li key={i}>{gap}</li>
-                              ))}
-                            </ul>
-                          ) : null}
-                          <p>
-                            <strong>下一步：</strong>
-                            {feedback.next_step}
-                          </p>
-                          <p className="feedback-evidence">
-                            反馈依据：{feedback.evidence}
-                          </p>
-                          <div className="feedback-actions">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={busy}
-                              onClick={() => void teach(node)}
-                            >
-                              <RotateCcw size={14} />
-                              {feedback.passed ? "再练一次" : "补讲并重新练习"}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => void reviewReminder()}
-                            >
-                              安排复习提醒
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="muted">本次练习已跳过，尚未验证。</p>
-                      )}
-                    </section>
-                  </>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="outline-toggle"
+                aria-label={outlineOpen ? "收起课程目录" : "展开课程目录"}
+                aria-expanded={outlineOpen}
+                aria-controls="course-outline"
+                onClick={() => setOutlineOpen(!outlineOpen)}
+              >
+                {outlineOpen ? (
+                  <PanelLeftClose size={17} />
                 ) : (
-                  <div className="start-lesson">
-                    <BookOpen size={30} />
-                    <h2>一次只学一个知识点</h2>
-                    <p>先理解用途和概念，再通过一个具体练习检查自己。</p>
-                    <Button disabled={busy} onClick={() => void teach(node)}>
-                      <Sparkles size={16} />
-                      开始这个知识点
-                    </Button>
-                  </div>
+                  <PanelLeftOpen size={17} />
                 )}
-                <div className="lesson-footer">
-                  <Button
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() => void skip()}
-                  >
-                    <SkipForward size={15} />
-                    跳过，保留未验证状态
-                  </Button>
-                  {next && (
-                    <Button
-                      variant="outline"
+                <span>目录</span>
+              </Button>
+            </div>
+          </header>
+          <div
+            className={`course-body ${outlineOpen ? "outline-open" : "outline-closed"}`}
+          >
+            <aside
+              className="course-outline"
+              id="course-outline"
+              aria-label="课程目录"
+              hidden={!outlineOpen}
+            >
+              <div className="outline-heading">
+                课程目录<span>{goal.nodes.length} 节</span>
+              </div>
+              <div className="outline-items">
+                {goal.nodes.map((value, i) => (
+                  <div key={value.id}>
+                    {i === 0 || goal.nodes[i - 1].module !== value.module ? (
+                      <p className="module-label">{value.module}</p>
+                    ) : null}
+                    <button
+                      className={`outline-node ${nodeId === value.id ? "active" : ""}`}
+                      aria-current={nodeId === value.id ? "step" : undefined}
                       disabled={busy}
                       onClick={() => {
-                        setNodeId(next.id);
+                        setNodeId(value.id);
                         setAnswer("");
                         setImages([]);
+                        if (
+                          typeof window.matchMedia === "function" &&
+                          window.matchMedia("(max-width: 1099px)").matches
+                        )
+                          setOutlineOpen(false);
                       }}
                     >
-                      下一个知识点
-                      <ArrowRight size={15} />
-                    </Button>
+                      <span className={`node-symbol ${value.status}`}>
+                        {value.status === "passed" ? (
+                          <Check size={13} />
+                        ) : value.status === "skipped" ? (
+                          <SkipForward size={12} />
+                        ) : (
+                          String(i + 1).padStart(2, "0")
+                        )}
+                      </span>
+                      <span>
+                        {value.title}
+                        {value.status !== "not_started" && (
+                          <small>{nodeStatus[value.status]}</small>
+                        )}
+                      </span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="delete-course"
+                onClick={() => setDeleting(goal)}
+              >
+                <Trash2 size={14} />
+                删除学习目标
+              </Button>
+            </aside>
+            <div className="lesson-content">
+              <div className="lesson-inner">
+                {notice && (
+                  <p className="success-notice" role="status">
+                    {notice}
+                  </p>
+                )}
+                {error && <ErrorNotice message={error} />}
+                <div className="lesson-topline">
+                  <div className="lesson-location">
+                    <span>{node?.module || "课程规划"}</span>
+                    {node && (
+                      <span className={`small-label ${node.status}`}>
+                        {nodeStatus[node.status]}
+                      </span>
+                    )}
+                  </div>
+                  {busy && (
+                    <span className="working-label">
+                      <Loader2 size={14} className="spin" />
+                      {run?.kind === "course"
+                        ? "正在建立知识框架"
+                        : run?.kind === "assessment"
+                          ? "正在检查练习"
+                          : "正在准备教学"}
+                      <button
+                        onClick={() => {
+                          if (run) void api(`/runs/${run.id}/cancel`, "POST");
+                        }}
+                      >
+                        停止
+                      </button>
+                    </span>
                   )}
                 </div>
-              </>
-            ) : null}
+                {!goal.nodes.length ? (
+                  <EmptyState
+                    icon={Compass}
+                    title="准备你的学习路线"
+                    action={
+                      <div className="empty-actions">
+                        <Button onClick={() => void plan()} disabled={busy}>
+                          <Sparkles size={15} />
+                          生成知识框架
+                        </Button>
+                        <Button variant="ghost" onClick={onSettings}>
+                          检查模型设置
+                        </Button>
+                      </div>
+                    }
+                  >
+                    Bai 将根据你的目标与基础，规划模块、知识点和练习。
+                  </EmptyState>
+                ) : node ? (
+                  <>
+                    <div className="lesson-heading">
+                      <h1>{node.title}</h1>
+                      <p>{node.objective}</p>
+                    </div>
+                    {node.prerequisites.length > 0 && (
+                      <div className="prerequisite-line">
+                        前置知识：
+                        {node.prerequisites
+                          .map(
+                            (id) => goal.nodes.find((x) => x.id === id)?.title,
+                          )
+                          .filter(Boolean)
+                          .join("、")}
+                      </div>
+                    )}
+                    {lesson ? (
+                      <>
+                        <Markdown>{lesson.content}</Markdown>
+                        <section className="exercise-box">
+                          <div className="section-title">
+                            <FileQuestion size={20} />
+                            <div>
+                              <h2>现在轮到你试一试</h2>
+                            </div>
+                          </div>
+                          <Markdown>{lesson.exercise}</Markdown>
+                          <div className="exercise-criteria">
+                            <strong>检查标准</strong>
+                            <p>{lesson.criteria}</p>
+                          </div>
+                          {lesson.hints.length > 0 && (
+                            <>
+                              <button
+                                className="text-button"
+                                onClick={() => setHints(!hints)}
+                              >
+                                {hints ? (
+                                  <ChevronDown size={14} />
+                                ) : (
+                                  <ChevronRight size={14} />
+                                )}
+                                需要一点提示
+                              </button>
+                              {hints && (
+                                <ul className="hint-list">
+                                  {lesson.hints.map((hint, i) => (
+                                    <li key={i}>{hint}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </>
+                          )}
+                          {lesson.state === "awaiting_submission" ? (
+                            <>
+                              <Label
+                                className="exercise-answer-label"
+                                htmlFor="exercise-answer"
+                              >
+                                练习回答
+                              </Label>
+                              <Textarea
+                                id="exercise-answer"
+                                aria-label="练习回答"
+                                rows={5}
+                                value={answer}
+                                onChange={(e) => setAnswer(e.target.value)}
+                                placeholder="写下你的理解、操作结果或代码…"
+                                disabled={busy}
+                              />
+                              <div className="exercise-submit">
+                                <ImagesInput
+                                  images={images}
+                                  onChange={setImages}
+                                  disabled={busy}
+                                  onError={setError}
+                                  onUploading={setUploading}
+                                />
+                                <Button
+                                  disabled={
+                                    busy ||
+                                    uploading ||
+                                    (!answer.trim() && !images.length)
+                                  }
+                                  onClick={() => void submit()}
+                                >
+                                  {busy ? (
+                                    <Loader2 size={15} className="spin" />
+                                  ) : (
+                                    <ArrowRight size={15} />
+                                  )}
+                                  {busy ? "正在检查…" : "提交练习"}
+                                </Button>
+                              </div>
+                            </>
+                          ) : feedback?.explanation ? (
+                            <div
+                              className={`feedback-box ${feedback.passed ? "passed" : "needs-practice"}`}
+                            >
+                              <h3>
+                                {feedback.passed ? (
+                                  <CheckCircle2 size={19} />
+                                ) : (
+                                  <RotateCcw size={19} />
+                                )}{" "}
+                                {feedback.passed
+                                  ? "这次练习通过了"
+                                  : "这里还需要再练一练"}
+                              </h3>
+                              <Markdown>{feedback.explanation}</Markdown>
+                              {feedback.gaps?.length ? (
+                                <ul>
+                                  {feedback.gaps.map((gap, i) => (
+                                    <li key={i}>{gap}</li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                              <p>
+                                <strong>下一步：</strong>
+                                {feedback.next_step}
+                              </p>
+                              <p className="feedback-evidence">
+                                反馈依据：{feedback.evidence}
+                              </p>
+                              <div className="feedback-actions">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={busy}
+                                  onClick={() => void teach(node)}
+                                >
+                                  <RotateCcw size={14} />
+                                  {feedback.passed
+                                    ? "再练一次"
+                                    : "补讲并重新练习"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => void reviewReminder()}
+                                >
+                                  安排复习提醒
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="muted">本次练习已跳过，尚未验证。</p>
+                          )}
+                        </section>
+                      </>
+                    ) : (
+                      <div className="start-lesson">
+                        {busy ? (
+                          <div
+                            className="lesson-loading"
+                            role="status"
+                            aria-label="正在准备教学"
+                          >
+                            <div className="lesson-loading-avatar">
+                              <BaiAvatar motion="thinking" />
+                            </div>
+                            <div className="lesson-skeleton" aria-hidden="true">
+                              <span />
+                              <span />
+                              <span />
+                            </div>
+                          </div>
+                        ) : (
+                          <Button
+                            disabled={busy}
+                            onClick={() => void teach(node)}
+                          >
+                            <BookOpen size={17} />
+                            开始这个知识点
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                    <div className="lesson-footer">
+                      <Button
+                        variant="ghost"
+                        aria-label="跳过，保留未验证状态"
+                        title="保留未验证状态"
+                        disabled={busy}
+                        onClick={() => void skip()}
+                      >
+                        <SkipForward size={15} />
+                        跳过
+                      </Button>
+                      <nav
+                        className="lesson-navigation"
+                        aria-label="知识点切换"
+                      >
+                        {previous && (
+                          <Button
+                            variant="ghost"
+                            disabled={busy}
+                            onClick={() => {
+                              setNodeId(previous.id);
+                              setAnswer("");
+                              setImages([]);
+                            }}
+                          >
+                            <ArrowLeft size={15} />
+                            上一个知识点
+                          </Button>
+                        )}
+                        {next && (
+                          <Button
+                            variant="outline"
+                            disabled={busy}
+                            onClick={() => {
+                              setNodeId(next.id);
+                              setAnswer("");
+                              setImages([]);
+                            }}
+                          >
+                            下一个知识点
+                            <ArrowRight size={15} />
+                          </Button>
+                        )}
+                      </nav>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -734,7 +865,7 @@ export function LearningPage({
               onClick={() => void create()}
             >
               <Sparkles size={15} />
-              建立学习路线
+              {busy ? "正在建立…" : "建立学习路线"}
             </Button>
           </DialogFooter>
         </DialogContent>

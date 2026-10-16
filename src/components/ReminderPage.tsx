@@ -1,14 +1,5 @@
 import { useState } from "react";
-import {
-  Bell,
-  Check,
-  Clock3,
-  MoreHorizontal,
-  Pencil,
-  Plus,
-  Repeat2,
-  X,
-} from "lucide-react";
+import { Bell, Check, Clock3, Pencil, Plus, Repeat2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -110,9 +101,7 @@ export function ReminderPage({
     <div className="page-content">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">给重要的事留一个位置</p>
           <h1>提醒</h1>
-          <p>安排一次行动，或为学习留一段固定时间。</p>
         </div>
         <Button onClick={() => edit()}>
           <Plus size={16} />
@@ -154,21 +143,19 @@ export function ReminderPage({
         <div className="segmented">
           <button
             className={!showHistory ? "selected" : ""}
+            aria-pressed={!showHistory}
             onClick={() => setShowHistory(false)}
           >
             当前事项 <span>{active.length}</span>
           </button>
           <button
             className={showHistory ? "selected" : ""}
+            aria-pressed={showHistory}
             onClick={() => setShowHistory(true)}
           >
             全部记录
           </button>
         </div>
-        <span className="muted small">
-          <Clock3 size={13} />
-          上海时间
-        </span>
       </div>
       {values.length ? (
         <div className="reminder-list">
@@ -255,10 +242,6 @@ export function ReminderPage({
           练习、复习、约定，或只是提醒自己好好休息。
         </EmptyState>
       )}
-      <div className="subtle-note">
-        <MoreHorizontal size={17} />
-        关窗后仍在托盘运行；退出应用或关闭电脑后，提醒会在下次启动时补充。
-      </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
@@ -320,7 +303,7 @@ export function ReminderPage({
               disabled={!title.trim() || !due || busy}
               onClick={() => void save()}
             >
-              保存提醒
+              {busy ? "正在保存…" : "保存提醒"}
             </Button>
           </DialogFooter>
         </DialogContent>

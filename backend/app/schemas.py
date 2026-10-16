@@ -19,8 +19,17 @@ class SettingsRead(BaseModel):
     model_name: str
     vision_enabled: bool
     timezone: str
+    memory_mode: Literal["auto", "confirm"]
     model_configured: bool
     search_configured: bool
+
+
+class ToolRead(BaseModel):
+    id: str
+    name: str
+    description: str
+    available: bool
+    note: str
 
 
 class SettingsUpdate(BaseModel):
@@ -30,6 +39,7 @@ class SettingsUpdate(BaseModel):
     search_key: str | None = Field(default=None, max_length=4096)
     vision_enabled: bool = False
     timezone: str = "Asia/Shanghai"
+    memory_mode: Literal["auto", "confirm"] | None = None
 
     @field_validator("model_url")
     @classmethod
@@ -46,6 +56,10 @@ class SettingsUpdate(BaseModel):
         except (ZoneInfoNotFoundError, ValueError):
             raise ValueError("无效时区")
         return value
+
+
+class MemorySettingsUpdate(BaseModel):
+    memory_mode: Literal["auto", "confirm"]
 
 
 class ConversationCreate(BaseModel):
@@ -127,6 +141,7 @@ class MemoryCreate(BaseModel):
     category: Literal["fact", "preference", "project"] = "fact"
     source: str = Field(default="用户手动记录", max_length=1000)
     state: Literal["confirmed", "candidate"] = "confirmed"
+    revision: int | None = Field(default=None, ge=1)
 
 
 class MemoryRead(RecordRead):
@@ -134,6 +149,16 @@ class MemoryRead(RecordRead):
     category: str
     source: str
     state: str
+    evidence: str
+    review_reason: str
+    source_conversation_id: str | None
+    source_message_id: str | None
+    replaces_id: str | None
+    revision: int
+
+
+class MemoryConfirm(BaseModel):
+    revision: int = Field(ge=1)
 
 
 class ReminderCreate(BaseModel):

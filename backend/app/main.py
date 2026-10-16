@@ -14,7 +14,17 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 from PIL import Image, ImageOps, UnidentifiedImageError
-from . import db as store, schemas as s, provider, learning, runs, agent, reminders
+from . import (
+    db as store,
+    schemas as s,
+    provider,
+    learning,
+    runs,
+    agent,
+    reminders,
+    tools,
+    memory,
+)
 from .config import (
     AUTH_TOKEN,
     DATA_DIR,
@@ -108,6 +118,7 @@ def settings_read(db):
         model_name=value.model_name,
         vision_enabled=value.vision_enabled,
         timezone=value.timezone,
+        memory_mode=value.memory_mode,
         model_configured=bool(value.model_name.strip() and secret_get("model")),
         search_configured=bool(secret_get("search")),
     )
@@ -143,6 +154,27 @@ def get_settings(db=Depends(database)):
     return settings_read(db)
 
 
+@router.get("/tools", response_model=list[s.ToolRead])
+def get_tools():
+    return tools.tool_catalog()
+
+
+@router.get("/runs/{run_id}/tools")
+def get_run_tools(run_id: str, db=Depends(database)):
+    item(db, store.Run, run_id)
+    return [
+        {"kind": event.kind, "data": event.data}
+        for event in db.scalars(
+            select(store.RunEvent)
+            .where(
+                store.RunEvent.run_id == run_id,
+                store.RunEvent.kind.in_(["tool", "memory"]),
+            )
+            .order_by(store.RunEvent.id)
+        )
+    ]
+
+
 @router.put("/settings", response_model=s.SettingsRead)
 def update_settings(value: s.SettingsUpdate, db=Depends(database)):
     try:
@@ -157,6 +189,15 @@ def update_settings(value: s.SettingsUpdate, db=Depends(database)):
     settings.model_name = value.model_name.strip()
     settings.vision_enabled = value.vision_enabled
     settings.timezone = value.timezone
+    if value.memory_mode is not None:
+        settings.memory_mode = value.memory_mode
+    db.commit()
+    return settings_read(db)
+
+
+@router.patch("/settings/memory", response_model=s.SettingsRead)
+def update_memory_settings(value: s.MemorySettingsUpdate, db=Depends(database)):
+    db.get(store.Settings, PROFILE_ID).memory_mode = value.memory_mode
     db.commit()
     return settings_read(db)
 
@@ -462,13 +503,15 @@ def skip_node(node_id: str, db=Depends(database)):
 @router.get("/memories", response_model=list[s.MemoryRead])
 def memories(db=Depends(database)):
     return db.scalars(
-        select(store.Memory).order_by(store.Memory.updated_at.desc())
+        select(store.Memory)
+        .where(store.Memory.profile_id == PROFILE_ID)
+        .order_by(store.Memory.updated_at.desc())
     ).all()
 
 
 @router.post("/memories", response_model=s.MemoryRead)
 def add_memory(value: s.MemoryCreate, db=Depends(database)):
-    record = store.Memory(**value.model_dump())
+    record = store.Memory(**value.model_dump(exclude={"revision"}))
     db.add(record)
     db.commit()
     return record
@@ -476,17 +519,42 @@ def add_memory(value: s.MemoryCreate, db=Depends(database)):
 
 @router.put("/memories/{memory_id}", response_model=s.MemoryRead)
 def edit_memory(memory_id: str, value: s.MemoryCreate, db=Depends(database)):
-    record = item(db, store.Memory, memory_id)
-    for key, val in value.model_dump().items():
-        setattr(record, key, val)
-    db.commit()
-    return record
+    try:
+        return memory.edit(
+            memory_id, value.model_dump(exclude={"revision"}), value.revision
+        )
+    except LookupError as error:
+        raise HTTPException(404, str(error))
+    except memory.MemoryConflict as error:
+        raise HTTPException(409, str(error))
+
+
+@router.post("/memories/{memory_id}/confirm", response_model=s.MemoryRead)
+def confirm_memory(memory_id: str, value: s.MemoryConfirm):
+    try:
+        return memory.confirm(memory_id, value.revision)
+    except LookupError as error:
+        raise HTTPException(404, str(error))
+    except memory.MemoryConflict as error:
+        raise HTTPException(409, str(error))
+
+
+@router.post("/memory-changes/{change_id}/undo")
+def undo_memory(change_id: str):
+    try:
+        return memory.undo(change_id)
+    except LookupError as error:
+        raise HTTPException(404, str(error))
+    except memory.MemoryConflict as error:
+        raise HTTPException(409, str(error))
 
 
 @router.delete("/memories/{memory_id}")
 def remove_memory(memory_id: str, db=Depends(database)):
-    db.delete(item(db, store.Memory, memory_id))
-    db.commit()
+    try:
+        memory.discard(memory_id)
+    except LookupError as error:
+        raise HTTPException(404, str(error))
     return {"deleted": True}
 
 

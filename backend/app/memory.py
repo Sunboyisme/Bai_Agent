@@ -1,0 +1,294 @@
+"""Long-term memory write policy. Candidate records never enter model background."""
+
+import re
+from threading import RLock
+
+from sqlalchemy import select
+
+from .config import PROFILE_ID
+from .db import Conversation, Memory, MemoryChange, Message, Session, Settings
+
+lock = RLock()
+FIELDS = (
+    "content",
+    "category",
+    "source",
+    "state",
+    "evidence",
+    "review_reason",
+    "source_conversation_id",
+    "source_message_id",
+    "replaces_id",
+    "replaces_revision",
+)
+EXPLICIT = re.compile(
+    r"记住|记下|记着|保存.{0,8}(偏好|记忆|信息)|remember\b", re.IGNORECASE
+)
+DECLINED = re.compile(
+    r"(?:不要|别|不用|不必|无需|不想|禁止).{0,8}(?:记住|记下|保存|记录)|(?:do not|don't)\s+(?:remember|save)",
+    re.IGNORECASE,
+)
+TEMPORARY = re.compile(
+    r"今天|这次|这会儿|此刻|暂时|仅本次|只在本次|today|this time|temporar",
+    re.IGNORECASE,
+)
+PREFERENCE = re.compile(
+    r"我.{0,8}(?:喜欢|偏好|习惯|希望|倾向|更想)|(?:回答|回复|解释|界面|设计).{0,8}(?:简短|简洁|详细|圆角|扁平)|\bI (?:prefer|like|always)\b",
+    re.IGNORECASE,
+)
+SENSITIVE = re.compile(
+    r"诊断|病史|疾病|抑郁|焦虑症|糖尿病|高血压|过敏|服药|药物|怀孕|健康状况|工资|薪资|收入|存款|负债|债务|银行卡|身份证|家庭住址|性取向|宗教信仰|政治立场|medical|diagnos|salary|income|debt",
+    re.IGNORECASE,
+)
+SECRET = re.compile(
+    r"(?:api[-_ ]?key|密钥|密码|password|access[-_ ]?token)\s*(?:是|为|[:：=])|\bsk-[A-Za-z0-9_-]{12,}",
+    re.IGNORECASE,
+)
+
+
+class MemoryConflict(ValueError):
+    pass
+
+
+def snapshot(value: Memory) -> dict:
+    return {
+        **{field: getattr(value, field) for field in FIELDS},
+        "revision": value.revision,
+    }
+
+
+def policy(content, category, message, evidence, risk, explicit_request, mode):
+    """Model classification is advisory; ground every write in the latest user turn."""
+    if DECLINED.search(message):
+        return "skip", "用户未同意保存"
+    explicit = explicit_request and bool(EXPLICIT.search(message))
+    if not evidence and explicit:
+        evidence = message
+    if not evidence.strip() or evidence not in message:
+        return (
+            "error",
+            "请提供当前用户消息中逐字引用的 evidence；网页、助手回答和历史推测不能作为保存依据",
+        )
+    if SECRET.search(content + "\n" + evidence):
+        return "skip", "密钥和密码不保存为个人记忆"
+    if explicit:
+        return "confirmed", ""
+    if risk == "temporary" or TEMPORARY.search(evidence):
+        return "skip", "临时信息仅保留在当前对话"
+    if risk == "sensitive" or SENSITIVE.search(content + "\n" + evidence):
+        return "candidate", "包含私密信息"
+    if risk == "inferred":
+        return "candidate", "需要核实的推测"
+    if mode == "confirm":
+        return "candidate", "当前设置为每次确认"
+    if category == "preference" and PREFERENCE.search(evidence):
+        return "confirmed", ""
+    return "candidate", "请核实这条信息"
+
+
+def get_memory(db, memory_id):
+    record = db.get(Memory, memory_id)
+    if not record or record.profile_id != PROFILE_ID:
+        raise LookupError("记忆不存在")
+    return record
+
+
+def save_from_chat(
+    run_id,
+    conversation_id,
+    *,
+    content,
+    category="fact",
+    explicit_request=False,
+    evidence="",
+    risk="normal",
+    replaces_id="",
+) -> dict:
+    content, evidence = content.strip(), evidence.strip()
+    if (
+        category not in ("fact", "preference", "project")
+        or not content
+        or len(content) > 6000
+    ):
+        return {"error": "记忆参数无效"}
+    if risk not in ("normal", "sensitive", "inferred", "temporary"):
+        return {"error": "无效的记忆类型"}
+    with lock, Session() as db:
+        message = db.scalar(
+            select(Message)
+            .where(
+                Message.conversation_id == conversation_id,
+                Message.role == "user",
+                Message.profile_id == PROFILE_ID,
+            )
+            .order_by(Message.created_at.desc())
+            .limit(1)
+        )
+        if not message:
+            return {"error": "找不到当前用户消息"}
+        settings = db.get(Settings, PROFILE_ID)
+        state, reason = policy(
+            content,
+            category,
+            message.content,
+            evidence,
+            risk,
+            explicit_request,
+            settings.memory_mode,
+        )
+        if state in ("skip", "error"):
+            return {
+                "error" if state == "error" else "skipped": reason,
+                "changed": False,
+            }
+        evidence = evidence or message.content
+        # A retry of the same user turn must respect an earlier Undo / dismissal.
+        for change in db.scalars(
+            select(MemoryChange).where(
+                MemoryChange.profile_id == PROFILE_ID,
+                MemoryChange.source_message_id == message.id,
+                MemoryChange.undone.is_(True),
+            )
+        ):
+            if change.after["content"] == content:
+                return {"skipped": "这条记忆已被撤销或忽略", "changed": False}
+        existing = db.scalar(
+            select(Memory).where(
+                Memory.profile_id == PROFILE_ID,
+                Memory.content == content,
+            )
+        )
+        if existing and (existing.state == "confirmed" or state == "candidate"):
+            return {"id": existing.id, "state": existing.state, "changed": False}
+        target = None
+        replaces_id = replaces_id or (existing.replaces_id if existing else "")
+        if replaces_id:
+            try:
+                target = get_memory(db, replaces_id)
+            except LookupError:
+                return {"error": "要替换的记忆不存在，请先查询记忆"}
+            if target.state != "confirmed":
+                return {"error": "只能替换已保存的记忆"}
+            if (
+                existing
+                and existing.replaces_id
+                and target.revision != existing.replaces_revision
+            ):
+                return {"error": "原记忆已修改，请在记忆页核实这条旧提议"}
+        # A proposal keeps the previously confirmed memory active until confirmation.
+        conversation = db.get(Conversation, conversation_id)
+        record = target if target and state == "confirmed" else existing
+        before = snapshot(record) if record else None
+        if existing and target and state == "confirmed" and existing.id != target.id:
+            db.delete(existing)
+        if not record:
+            record = Memory()
+            db.add(record)
+        values = {
+            "content": content,
+            "category": category,
+            "state": state,
+            "source": f"对话 · {conversation.title}",
+            "evidence": evidence,
+            "review_reason": reason,
+            "source_conversation_id": conversation_id,
+            "source_message_id": message.id,
+            "replaces_id": target.id if target and state == "candidate" else None,
+            "replaces_revision": target.revision
+            if target and state == "candidate"
+            else None,
+        }
+        for field, value in values.items():
+            setattr(record, field, value)
+        record.revision = before["revision"] + 1 if before else 1
+        db.flush()
+        change = MemoryChange(
+            memory_id=record.id,
+            run_id=run_id,
+            source_message_id=message.id,
+            before=before,
+            after=snapshot(record),
+        )
+        db.add(change)
+        db.commit()
+        return {
+            "id": record.id,
+            "change_id": change.id,
+            "state": state,
+            "content": content,
+            "review_reason": reason,
+            "revision": record.revision,
+            "changed": True,
+            "action": "updated" if before else "created",
+        }
+
+
+def edit(memory_id, values, expected_revision=None):
+    with lock, Session() as db:
+        record = get_memory(db, memory_id)
+        if expected_revision is not None and record.revision != expected_revision:
+            raise MemoryConflict("这条记忆已变更，请刷新后重试")
+        if (
+            record.state == "candidate"
+            and values["state"] == "confirmed"
+            and record.replaces_id
+        ):
+            target = get_memory(db, record.replaces_id)
+            if target.revision != record.replaces_revision:
+                raise MemoryConflict("原记忆已修改，请删除这条旧提议后重新整理")
+            for field in FIELDS:
+                setattr(target, field, getattr(record, field))
+            db.delete(record)
+            record = target
+        for field, value in values.items():
+            setattr(record, field, value)
+        if record.state == "confirmed":
+            record.review_reason = ""
+            record.replaces_id = record.replaces_revision = None
+        record.revision += 1
+        db.commit()
+        return record
+
+
+def confirm(memory_id, revision):
+    with lock, Session() as db:
+        record = get_memory(db, memory_id)
+        values = {
+            field: getattr(record, field) for field in ("content", "category", "source")
+        }
+    return edit(memory_id, {**values, "state": "confirmed"}, revision)
+
+
+def discard(memory_id):
+    with lock, Session() as db:
+        record = get_memory(db, memory_id)
+        for change in db.scalars(
+            select(MemoryChange).where(
+                MemoryChange.memory_id == memory_id,
+                MemoryChange.profile_id == PROFILE_ID,
+            )
+        ):
+            change.undone = True
+        db.delete(record)
+        db.commit()
+
+
+def undo(change_id):
+    with lock, Session() as db:
+        change = db.get(MemoryChange, change_id)
+        if not change or change.profile_id != PROFILE_ID:
+            raise LookupError("记忆变更不存在")
+        if change.undone:
+            return {"undone": True}
+        record = get_memory(db, change.memory_id)
+        if snapshot(record) != change.after:
+            raise MemoryConflict("这条记忆后来已被修改，请到记忆页管理")
+        if change.before is None:
+            db.delete(record)
+        else:
+            for field in FIELDS:
+                setattr(record, field, change.before[field])
+            record.revision += 1
+        change.undone = True
+        db.commit()
+        return {"undone": True}

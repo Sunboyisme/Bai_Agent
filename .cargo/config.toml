@@ -1,0 +1,3 @@
+[build]
+# Keep generated Tauri permission paths in this checkout, separate from copied caches.
+target-dir = ".local-data/cargo-ui-review"

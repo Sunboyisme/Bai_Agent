@@ -7,7 +7,7 @@ import pytest
 # Set before importing the application. Tests never open the personal development DB.
 os.environ["BAI_DATA_DIR"] = tempfile.mkdtemp(prefix="bai-agent-tests-")
 os.environ.pop("BAI_DATABASE_URL", None)
-from app import db, config, provider, main
+from app import db, config, provider, main, search, tools
 from fastapi.testclient import TestClient
 from .mock_provider import Handler, ThreadingHTTPServer
 
@@ -32,6 +32,8 @@ def isolate(monkeypatch):
     monkeypatch.setattr(provider, "secret_get", get)
     monkeypatch.setattr(main, "secret_get", get)
     monkeypatch.setattr(main, "secret_set", put)
+    monkeypatch.setattr(search, "secret_get", get)
+    monkeypatch.setattr(tools, "secret_get", get)
     yield vault
 
 
