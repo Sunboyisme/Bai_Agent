@@ -1,11 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod backend_port;
+
 use serde::Serialize;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+#[cfg(not(debug_assertions))]
+use std::process::Stdio;
 use std::{
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::{Child, Command},
     sync::{Mutex, OnceLock},
     time::Duration,
 };
@@ -19,7 +23,7 @@ use tauri_plugin_notification::NotificationExt;
 struct Backend {
     child: Mutex<Option<Child>>,
     data_dir: OnceLock<PathBuf>,
-    url: String,
+    url: OnceLock<String>,
 }
 #[derive(Serialize)]
 struct Connection {
@@ -33,7 +37,7 @@ fn backend_config(state: tauri::State<'_, Backend>) -> Result<Connection, String
     let token = std::fs::read_to_string(data_dir.join("auth-token"))
         .map_err(|_| "本机服务正在启动，请稍候。")?;
     Ok(Connection {
-        url: state.url.clone(),
+        url: state.url.get().ok_or("本机服务正在启动，请稍候。")?.clone(),
         token: token.trim().into(),
     })
 }
@@ -52,16 +56,15 @@ fn open_main(app: &tauri::AppHandle) {
 }
 
 fn main() {
-    let port: u16 = std::env::var("BAI_BACKEND_PORT")
+    let preferred_port: u16 = std::env::var("BAI_BACKEND_PORT")
         .unwrap_or_else(|_| "8766".into())
         .parse()
         .expect("BAI_BACKEND_PORT 必须是有效端口");
-    assert!(port >= 1024, "BAI_BACKEND_PORT 必须大于等于 1024");
-    let backend_url = format!("http://127.0.0.1:{port}/api/v1");
+    assert!(preferred_port >= 1024, "BAI_BACKEND_PORT 必须大于等于 1024");
     let backend = Backend {
         child: Mutex::new(None),
         data_dir: OnceLock::new(),
-        url: backend_url.clone(),
+        url: OnceLock::new(),
     };
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -88,30 +91,32 @@ fn main() {
             let _ = app.state::<Backend>().data_dir.set(data_dir.clone());
             let client = reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(1))
+                .no_proxy()
                 .build()?;
-            let online = client
-                .get(format!("{backend_url}/health"))
-                .send()
-                .ok()
-                .and_then(|r| r.json::<serde_json::Value>().ok())
-                .is_some_and(|v| v["service"] == "bai-agent");
-            if online {
+            let mut selected_port = backend_port::select_backend_port(preferred_port, |port| {
+                let url = format!("http://127.0.0.1:{port}/api/v1");
+                let online = client
+                    .get(format!("{url}/health"))
+                    .send()
+                    .ok()
+                    .and_then(|r| r.json::<serde_json::Value>().ok())
+                    .is_some_and(|v| v["service"] == "bai-agent");
+                if !online {
+                    return false;
+                }
                 let token =
                     std::fs::read_to_string(data_dir.join("auth-token")).unwrap_or_default();
-                let same_profile = client
-                    .get(format!("{backend_url}/settings"))
-                    .bearer_auth(token.trim())
-                    .send()
-                    .is_ok_and(|r| r.status().is_success());
-                if !same_profile {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::AddrInUse,
-                        format!("{port} 端口正在运行其他 Bai 数据空间。请先退出该空间后再启动。"),
-                    )
-                    .into());
-                }
-            }
-            if !online {
+                !token.trim().is_empty()
+                    && client
+                        .get(format!("{url}/settings"))
+                        .bearer_auth(token.trim())
+                        .send()
+                        .is_ok_and(|r| r.status().is_success())
+            })?;
+            let port = selected_port.port;
+            let backend_url = format!("http://127.0.0.1:{port}/api/v1");
+            let _ = app.state::<Backend>().url.set(backend_url.clone());
+            if selected_port.needs_spawn() {
                 #[cfg(debug_assertions)]
                 let mut command = {
                     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -149,6 +154,7 @@ fn main() {
                     .env("BAI_DATA_DIR", &data_dir);
                 #[cfg(windows)]
                 command.creation_flags(0x08000000);
+                selected_port.release();
                 let child = command.spawn()?;
                 *app.state::<Backend>().child.lock().unwrap() = Some(child);
             }
