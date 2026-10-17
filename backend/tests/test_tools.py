@@ -198,7 +198,7 @@ async def test_ambiguous_weather_requires_confirmation(monkeypatch):
 
 def test_catalog_matches_agent_tools_and_search_configuration(client, isolate):
     catalog = client.get(API + "/tools").json()
-    assert {item["id"] for item in catalog} == {
+    assert {item["id"] for item in catalog if item["enabled"] and item["available"]} == {
         tool.name for tool in tools.build_tools("unused", "unused")
     }
     assert next(item for item in catalog if item["id"] == "get_weather")["available"]
@@ -214,7 +214,12 @@ def test_catalog_matches_agent_tools_and_search_configuration(client, isolate):
         ("查资料", {"搜索资料"}),
     ],
 )
-def test_agent_utility_loop_and_persisted_events(configured, prompt, expected_names):
+def test_agent_utility_loop_and_persisted_events(configured, prompt, expected_names, isolate, monkeypatch):
+    if prompt == "查资料":
+        isolate["search"] = "synthetic-key"
+        async def unavailable(query):
+            raise httpx.ConnectError("isolated service failure")
+        monkeypatch.setattr(tools.search, "search_web", unavailable)
     conversation = configured.post(API + "/conversations", json={}).json()
     run = wait_run(
         configured,
@@ -228,7 +233,7 @@ def test_agent_utility_loop_and_persisted_events(configured, prompt, expected_na
     assert {event["data"]["name"] for event in events} == expected_names
     if prompt == "查资料":
         assert events[0]["data"]["status"] == "error"
-        assert "Tavily" in events[0]["data"]["result"]["error"]
+        assert "请求未完成" in events[0]["data"]["result"]["error"]
     else:
         results = {event["data"]["name"]: event["data"]["result"] for event in events}
         assert results["计算器"]["result"] == "244.80"

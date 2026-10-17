@@ -3,7 +3,7 @@ import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { readEvents } from "@/lib/api";
 import { ChatPage } from "./ChatPage";
-import type { Goal, Reminder, Settings } from "@/lib/api";
+import type { Settings } from "@/lib/api";
 
 const settings: Settings = {
   model_name: "mock-test",
@@ -13,6 +13,33 @@ const settings: Settings = {
   vision_enabled: false,
   timezone: "Asia/Shanghai",
   memory_mode: "auto",
+  default_provider: "custom",
+  provider_presets: [
+    {
+      id: "custom",
+      label: "自定义兼容接口",
+      model_url: "https://example.com/v1",
+      models: [],
+    },
+  ],
+  providers: [
+    {
+      id: "custom",
+      provider_type: "custom",
+      label: "自定义兼容接口",
+      model_url: "https://example.com/v1",
+      default_model: "mock-test",
+      key_configured: true,
+      models: [
+        {
+          name: "mock-test",
+          vision_enabled: false,
+          thinking_mode: "auto",
+          thinking_control: "none",
+        },
+      ],
+    },
+  ],
 };
 
 const apiMock = vi.hoisted(() => vi.fn());
@@ -27,9 +54,8 @@ afterEach(() => {
   localStorage.clear();
 });
 
-test("empty home offers creation instead of sample progress and reminders", () => {
+test("home keeps the assistant interactive without the expanded followup cards", () => {
   apiMock.mockResolvedValue([]);
-  const onAction = vi.fn();
   render(
     <ChatPage
       conversationId={null}
@@ -38,92 +64,21 @@ test("empty home offers creation instead of sample progress and reminders", () =
       reminders={[]}
       settings={settings}
       refresh={vi.fn()}
-      onAction={onAction}
+      onAction={vi.fn()}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: /开始一段新的学习/ }));
-  expect(onAction).toHaveBeenLastCalledWith("learning", true);
-  fireEvent.click(screen.getByRole("button", { name: /安排一个小提醒/ }));
-  expect(onAction).toHaveBeenLastCalledWith("reminders", true);
-  expect(screen.queryByText("Python 基础入门")).toBeNull();
-});
-
-test("home continues a persisted goal and shows the earliest active reminder", () => {
-  apiMock.mockResolvedValue([]);
-  const stamp = {
-    created_at: "2030-01-01T00:00:00Z",
-    updated_at: "2030-01-01T00:00:00Z",
-  };
-  const goal: Goal = {
-    ...stamp,
-    id: "my-goal",
-    title: "我的真实学习目标",
-    objective: "自己动手练习",
-    foundation: "",
-    status: "active",
-    course_version: 1,
-    current_node_id: "node",
-    nodes: [
-      {
-        ...stamp,
-        id: "node",
-        goal_id: "my-goal",
-        ordinal: 0,
-        module: "基础",
-        title: "已有知识点",
-        objective: "理解基础",
-        prerequisites: [],
-        exercise_type: "question",
-        criteria: "能解释",
-        status: "passed",
-        review_at: null,
-      },
-    ],
-  };
-  const reminder: Reminder = {
-    ...stamp,
-    id: "later",
-    title: "较晚的提醒",
-    body: "",
-    due_at: "2030-01-02T12:00:00Z",
-    timezone: "Asia/Shanghai",
-    recurrence: "none",
-    status: "active",
-  };
-  const onAction = vi.fn();
-  render(
-    <ChatPage
-      conversationId={null}
-      onConversation={vi.fn()}
-      goals={[goal]}
-      reminders={[
-        reminder,
-        {
-          ...reminder,
-          id: "cancelled",
-          title: "已取消的提醒",
-          due_at: "2030-01-01T01:00:00Z",
-          status: "cancelled",
-        },
-        {
-          ...reminder,
-          id: "first",
-          title: "最早的有效提醒",
-          due_at: "2030-01-02T01:00:00Z",
-        },
-      ]}
-      settings={settings}
-      refresh={vi.fn()}
-      onAction={onAction}
-    />,
-  );
-  expect(screen.getByText("1 / 1 个知识点通过练习")).toBeTruthy();
-  expect(screen.getByText("最早的有效提醒")).toBeTruthy();
-  expect(screen.queryByText("已取消的提醒")).toBeNull();
-  expect(screen.queryByText("较晚的提醒")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: /我的真实学习目标/ }));
-  expect(localStorage.getItem("bai-current-goal")).toBe(goal.id);
-  expect(onAction).toHaveBeenLastCalledWith("learning", false);
+  expect(
+    screen.getByRole("heading", { name: "今天想做点什么？" }),
+  ).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "学习与提醒" })).toBeNull();
+  const input = screen.getByLabelText("发送给XiaoXi的消息");
+  fireEvent.change(input, { target: { value: "还没写完的消息" } });
+  const avatar = screen.getByRole("button", { name: "和XiaoXi打个招呼" });
+  fireEvent.click(avatar);
+  expect(avatar.getAttribute("data-reaction")).toBe("happy");
+  fireEvent.click(avatar);
+  expect(avatar.getAttribute("data-reaction")).toBe("wave");
+  expect((input as HTMLTextAreaElement).value).toBe("还没写完的消息");
 });
 
 test("a run completed before conversation handoff still shows its persisted answer", async () => {
@@ -171,6 +126,33 @@ test("a run completed before conversation handoff still shows its persisted answ
         vision_enabled: false,
         timezone: "Asia/Shanghai",
         memory_mode: "auto",
+        default_provider: "custom",
+        provider_presets: [
+          {
+            id: "custom",
+            label: "自定义兼容接口",
+            model_url: "https://example.com/v1",
+            models: [],
+          },
+        ],
+        providers: [
+          {
+            id: "custom",
+            provider_type: "custom",
+            label: "自定义兼容接口",
+            model_url: "https://example.com/v1",
+            default_model: "mock-test",
+            key_configured: true,
+            models: [
+              {
+                name: "mock-test",
+                vision_enabled: false,
+                thinking_mode: "auto",
+                thinking_control: "none",
+              },
+            ],
+          },
+        ],
       }}
       refresh={refresh}
       onAction={vi.fn()}

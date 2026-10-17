@@ -6,33 +6,79 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 from .db import Session, Settings, Attachment
 from .config import PROFILE_ID, ATTACHMENTS_DIR, secret_get
+from . import model_profiles
 
 
 class ConfigurationError(Exception):
     pass
 
 
-def model() -> ChatOpenAI:
+class CompatibleChatModel(ChatOpenAI):
+    """Keep reasoning_content intact across streamed Agent tool rounds."""
+
+    def _convert_chunk_to_generation_chunk(self, chunk, *args, **kwargs):
+        value = super()._convert_chunk_to_generation_chunk(chunk, *args, **kwargs)
+        choices = chunk.get("choices", [])
+        reasoning = (choices[0].get("delta") or {}).get("reasoning_content") if choices else None
+        if value and reasoning is not None:
+            value.message.additional_kwargs["reasoning_content"] = reasoning
+        return value
+
+    def _create_chat_result(self, response, *args, **kwargs):
+        value = super()._create_chat_result(response, *args, **kwargs)
+        raw = response if isinstance(response, dict) else response.model_dump()
+        for generation, choice in zip(value.generations, raw.get("choices", [])):
+            reasoning = choice.get("message", {}).get("reasoning_content")
+            if reasoning is not None:
+                generation.message.additional_kwargs["reasoning_content"] = reasoning
+        return value
+
+    def _get_request_payload(self, input_, *args, **kwargs):
+        value = super()._get_request_payload(input_, *args, **kwargs)
+        for raw, message in zip(value.get("messages", []), self._convert_input(input_).to_messages()):
+            if message.type == "ai" and "reasoning_content" in message.additional_kwargs:
+                raw["reasoning_content"] = message.additional_kwargs["reasoning_content"]
+        return value
+
+
+def model(config=None) -> ChatOpenAI:
     with Session() as db:
         settings = db.get(Settings, PROFILE_ID)
-        key = secret_get("model")
-        if not key or not settings.model_name.strip():
+        try:
+            config = config or model_profiles.resolve(settings)
+        except ValueError as error:
+            raise ConfigurationError(str(error)) from None
+        key = secret_get(model_profiles.secret_ref(config["provider_id"]))
+        if not key:
             raise ConfigurationError("请先在「连接与设置」中填写模型名称与 API 密钥。")
-        return ChatOpenAI(
-            model=settings.model_name.strip(),
+        mode = config["thinking_control"]
+        enabled = config["thinking_enabled"]
+        extra = {}
+        options = {}
+        if mode == "thinking":
+            extra = {"thinking": {"type": "enabled" if enabled else "disabled"}}
+        elif mode == "enable_thinking":
+            extra = {"enable_thinking": enabled}
+        elif mode == "reasoning_effort":
+            options["reasoning_effort"] = "high" if enabled else "none"
+        return CompatibleChatModel(
+            model=config["model_name"],
             api_key=key,
-            base_url=settings.model_url.rstrip("/"),
-            timeout=75,
+            base_url=config["model_url"].rstrip("/"),
+            timeout=180 if enabled else 75,
             max_retries=1,
+            extra_body=extra or None,
+            use_responses_api=False,
+            **options,
         )
 
 
-def user_content(text: str, attachment_ids: list[str] | None = None):
+def user_content(text: str, attachment_ids: list[str] | None = None, config=None):
     if not attachment_ids:
         return text
     with Session() as db:
         settings = db.get(Settings, PROFILE_ID)
-        if not settings.vision_enabled:
+        if not (config["vision_enabled"] if config else settings.vision_enabled):
             raise ConfigurationError(
                 "当前模型未启用图片输入。请在设置中确认模型支持图片，或改用文字描述。"
             )

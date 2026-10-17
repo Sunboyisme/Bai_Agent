@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { SoftSelect } from "./ui/soft-select";
+import { useEffect, useState } from "react";
 import { Brain, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,13 +27,18 @@ export function MemoryPage({
   memoryMode,
   refresh,
   createRequested,
+  embedded = false,
 }: {
   memories: Memory[];
   memoryMode: Settings["memory_mode"];
   refresh: () => Promise<void>;
   createRequested?: number;
+  embedded?: boolean;
 }) {
   const [open, setOpen] = useState(Boolean(createRequested));
+  useEffect(() => {
+    if (createRequested) setOpen(true);
+  }, [createRequested]);
   const [editing, setEditing] = useState<Memory | null>(null);
   const [content, setContent] = useState("");
   const [category, setCategory] = useState("fact");
@@ -42,6 +48,7 @@ export function MemoryPage({
   const [deleting, setDeleting] = useState<Memory | null>(null);
   const [changingMode, setChangingMode] = useState(false);
   async function changeMode(mode: Settings["memory_mode"]) {
+    if (changingMode) return;
     setChangingMode(true);
     setError("");
     try {
@@ -99,25 +106,22 @@ export function MemoryPage({
     (x) => x.state === "confirmed" && x.content.includes(query),
   );
   return (
-    <div className="page-content">
+    <div className={embedded ? "memory-settings" : "page-content"}>
       <div className="page-heading">
         <div>
-          <h1>记忆</h1>
-          <p>查看、修改或删除 Bai 记住的信息。</p>
+          {embedded ? <h2>记忆</h2> : <h1>记忆</h1>}
+          <p>查看、修改或删除XiaoXi记住的信息。</p>
         </div>
         <div className="memory-heading-actions">
-          <select
-            className="native-select"
-            aria-label="记忆保存方式"
+          <SoftSelect
+            label="记忆保存方式"
             value={memoryMode}
-            disabled={changingMode}
-            onChange={(event) =>
-              void changeMode(event.target.value as Settings["memory_mode"])
-            }
-          >
-            <option value="auto">自动记忆</option>
-            <option value="confirm">每次确认</option>
-          </select>
+            onValueChange={(v) => void changeMode(v as Settings["memory_mode"])}
+            options={[
+              { value: "auto", label: "自动记忆" },
+              { value: "confirm", label: "每次确认" },
+            ]}
+          />
           <Button onClick={() => edit()}>
             <Plus size={16} />
             添加记忆
@@ -181,7 +185,7 @@ export function MemoryPage({
       ) : (
         <EmptyState
           icon={Brain}
-          title={query ? "没有匹配的记忆" : "从一件你想让 Bai 记住的事开始"}
+          title={query ? "没有匹配的记忆" : "从一件你想让XiaoXi记住的事开始"}
           action={
             !query && (
               <Button variant="outline" onClick={() => edit()}>
@@ -217,18 +221,16 @@ export function MemoryPage({
           </div>
           <div className="form-field">
             <Label htmlFor="memory-category">类型</Label>
-            <select
+            <SoftSelect
               id="memory-category"
-              className="native-select"
+              label="类型"
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
-            >
-              {Object.entries(categories).map(([key, name]) => (
-                <option key={key} value={key}>
-                  {name}
-                </option>
-              ))}
-            </select>
+              onValueChange={setCategory}
+              options={Object.entries(categories).map(([value, label]) => ({
+                value,
+                label,
+              }))}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>

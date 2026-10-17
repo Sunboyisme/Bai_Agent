@@ -61,6 +61,15 @@ def reply(body):
             )
         }
     last = messages[-1]
+    if "组合MCP" in user:
+        remote = next((x["function"]["name"] for x in body.get("tools", []) if x["function"]["name"].startswith("mcp_")), None)
+        if last["role"] != "tool":
+            name, args = "calculate", {"expression": "2+3"}
+        elif remote and not any(call.get("function", {}).get("name", "").startswith("mcp_") for message in messages for call in message.get("tool_calls", [])):
+            name, args = remote, {"text": "mixed tool result 5"}
+        else:
+            return {"content": "组合工具已执行。"}
+        return {"content": None, "tool_calls": [{"id": "call_" + name, "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]}
     if last["role"] == "tool":
         try:
             result = json.loads(last.get("content", "{}"))
@@ -254,6 +263,8 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             chunk({"role": "assistant"})
+            if "reasoning_content" in message:
+                chunk({"reasoning_content": message["reasoning_content"]})
             for part in re.findall(r".{1,5}", message.get("content") or "", flags=re.S):
                 chunk({"content": part})
             if message.get("tool_calls"):

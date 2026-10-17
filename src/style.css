@@ -1,3 +1,4 @@
+@import "./styles/tools.css";
 @import "tailwindcss";
 
 @theme inline {

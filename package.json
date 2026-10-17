@@ -1,12 +1,13 @@
 {
   "name": "bai-agent",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "packageManager": "pnpm@11.20.0",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5186 --strictPort",
     "desktop:dev": "tauri dev",
+    "desktop:preview": "tauri dev --config src-tauri/tauri.preview.conf.json",
     "backend:dev": "uv run --project backend uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8766",
     "build": "tsc -b && vite build",
     "backend:bundle": "pwsh -NoProfile -File scripts/build-backend.ps1",

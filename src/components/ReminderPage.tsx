@@ -1,3 +1,4 @@
+import { SoftSelect } from "./ui/soft-select";
 import { useState } from "react";
 import { Bell, Check, Clock3, Pencil, Plus, Repeat2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -247,7 +248,7 @@ export function ReminderPage({
           <DialogHeader>
             <DialogTitle>{editing ? "编辑提醒" : "新建提醒"}</DialogTitle>
             <DialogDescription>
-              保存具体的事项和时间，到点后 Bai 会提醒你。
+              保存具体的事项和时间，到点后XiaoXi会提醒你。
             </DialogDescription>
           </DialogHeader>
           {error && <ErrorNotice message={error} />}
@@ -272,16 +273,17 @@ export function ReminderPage({
             </div>
             <div className="form-field">
               <Label htmlFor="reminder-repeat">重复</Label>
-              <select
+              <SoftSelect
                 id="reminder-repeat"
-                className="native-select"
+                label="重复"
                 value={repeat}
-                onChange={(e) => setRepeat(e.target.value)}
-              >
-                <option value="none">仅这一次</option>
-                <option value="daily">每天</option>
-                <option value="weekly">每周</option>
-              </select>
+                onValueChange={setRepeat}
+                options={[
+                  { value: "none", label: "仅这一次" },
+                  { value: "daily", label: "每天" },
+                  { value: "weekly", label: "每周" },
+                ]}
+              />
             </div>
           </div>
           <div className="form-field">

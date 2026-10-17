@@ -8,9 +8,8 @@ import {
 import {
   ArrowRight,
   ArrowUp,
-  BookOpen,
-  Bell,
   Cable,
+  Brain,
   Check,
   ChevronDown,
   CircleAlert,
@@ -37,7 +36,6 @@ import {
 import { ErrorNotice, ImagesInput, Markdown, Picture } from "./common";
 import { ToolboxMenu } from "./ToolboxMenu";
 import { BaiAvatar } from "./BaiAvatar";
-import { dateTime } from "@/lib/utils";
 import {
   MemoryReview,
   MemorySavedNotice,
@@ -48,6 +46,10 @@ function toolSummary(event: RunEvent): string {
   const result = event.data.result as Record<string, unknown> | undefined;
   if (!result) return "操作已完成";
   if (result.error) return String(result.error);
+  if (result.summary) return String(result.summary).slice(0, 220);
+  if (result.text) return String(result.text).slice(0, 220);
+  if (result.structured_content)
+    return JSON.stringify(result.structured_content).slice(0, 220);
   if (result.skipped) return String(result.skipped);
   if (result.needs_clarification) return "找到多个同名地点，等待确认";
   if (result.result !== undefined)
@@ -88,8 +90,6 @@ export function ChatPage({
   conversationId,
   onConversation,
   settings,
-  goals,
-  reminders,
   memories,
   refresh,
   onAction,
@@ -103,6 +103,26 @@ export function ChatPage({
   refresh: () => Promise<void>;
   onAction: (page: string, create?: boolean) => void;
 }) {
+  const [modelKey, setModelKey] = useState("");
+  const [thinking, setThinking] = useState(false);
+  const choices = settings.providers.flatMap((profile) =>
+    profile.models.map((model) => ({
+      profile,
+      model,
+      key: `${profile.id}:${model.name}`,
+    })),
+  );
+  const selected =
+    choices.find((x) => x.key === modelKey) ||
+    choices.find(
+      (x) =>
+        x.profile.id === settings.default_provider &&
+        x.model.name === x.profile.default_model,
+    );
+  const modelReady = Boolean(selected?.profile.key_configured);
+  const thinkingControl = selected?.model.thinking_control || "none";
+  const thinkingEnabled =
+    thinkingControl === "always" || (thinkingControl !== "none" && thinking);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [images, setImages] = useState<Attachment[]>([]);
@@ -280,6 +300,13 @@ export function ChatPage({
       const value = await api<Run>(`/conversations/${id}/messages`, "POST", {
         content: draft.trim() || "请根据这张图片帮助我分析。",
         attachment_ids: images.map((x) => x.id),
+        model_selection: selected
+          ? {
+              provider_id: selected.profile.id,
+              model_name: selected.model.name,
+              thinking_enabled: thinkingEnabled,
+            }
+          : undefined,
       });
       setDraft("");
       setImages([]);
@@ -309,14 +336,6 @@ export function ChatPage({
     }
   }
   const empty = !messages.length && !busy;
-  const latestGoal = goals[0];
-  const nextReminder = reminders
-    .filter((value) => ["active", "fired"].includes(value.status))
-    .sort((a, b) => Date.parse(a.due_at) - Date.parse(b.due_at))[0];
-  function prompt(text: string) {
-    setDraft(text);
-    composer.current?.focus();
-  }
   return (
     <div className="chat-layout">
       <div className={`chat-main ${empty ? "is-empty" : ""}`}>
@@ -333,7 +352,7 @@ export function ChatPage({
           {empty ? (
             <div className="welcome">
               <div className="welcome-buddy">
-                <BaiAvatar />
+                <BaiAvatar interactive className="welcome-avatar" />
                 <span className="welcome-greeting">嗨，我在呢</span>
               </div>
               <div>
@@ -361,7 +380,7 @@ export function ChatPage({
                   </div>
                   <div className="message-body">
                     <span className="message-name">
-                      {value.role === "assistant" ? "Bai" : "你"}
+                      {value.role === "assistant" ? "XiaoXi" : "你"}
                     </span>
                     <Markdown>{value.content}</Markdown>
                     {value.attachment_ids.length > 0 && (
@@ -380,7 +399,7 @@ export function ChatPage({
                     <BaiAvatar motion="thinking" />
                   </div>
                   <div className="message-body">
-                    <span className="message-name">Bai</span>
+                    <span className="message-name">XiaoXi</span>
                     {stream ? (
                       <Markdown>{stream}</Markdown>
                     ) : (
@@ -440,12 +459,22 @@ export function ChatPage({
                         <div className="tool-result-copy">
                           <div className="tool-result-title">
                             <strong>{String(event.data.name)}</strong>
+                            {event.data.source === "mcp" && (
+                              <small>{String(event.data.source_label)}</small>
+                            )}
+                            {typeof event.data.duration_ms === "number" && (
+                              <small>
+                                {(event.data.duration_ms / 1000).toFixed(1)}s
+                              </small>
+                            )}
                             <span className="tool-result-state">
-                              {failed
-                                ? "调用失败"
-                                : needsConfirmation
-                                  ? "待确认"
-                                  : "已返回"}
+                              {event.data.status === "cancelled"
+                                ? "已取消"
+                                : failed
+                                  ? "调用失败"
+                                  : needsConfirmation
+                                    ? "待确认"
+                                    : "已返回"}
                             </span>
                           </div>
                           <p>{toolSummary(event)}</p>
@@ -484,7 +513,7 @@ export function ChatPage({
               retry={run?.status === "failed" ? () => void retry() : undefined}
             />
           )}
-          {!settings.model_configured && (
+          {!modelReady && (
             <button
               className="setup-nudge"
               onClick={() => onAction("settings")}
@@ -498,12 +527,10 @@ export function ChatPage({
             <Textarea
               id="chat-message"
               ref={composer}
-              aria-label="发送给 Bai 的消息"
+              aria-label="发送给XiaoXi的消息"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder={
-                settings.model_configured ? "输入消息…" : "连接模型后开始对话"
-              }
+              placeholder={modelReady ? "输入消息…" : "连接模型后开始对话"}
               rows={2}
               disabled={busy}
               onKeyDown={(e) => {
@@ -513,7 +540,7 @@ export function ChatPage({
                   !e.nativeEvent.isComposing
                 ) {
                   e.preventDefault();
-                  if (settings.model_configured && !busy) void send();
+                  if (modelReady && !busy) void send();
                 }
               }}
             />
@@ -522,26 +549,45 @@ export function ChatPage({
                 <ImagesInput
                   images={images}
                   onChange={setImages}
-                  disabled={busy || !settings.model_configured}
+                  disabled={busy || !modelReady}
                   onError={setError}
                   onUploading={setUploading}
                 />
-                <ToolboxMenu
-                  onPrompt={prompt}
-                  onSettings={() => onAction("settings")}
-                />
+                <ToolboxMenu onSettings={() => onAction("tools")} />
+                <button
+                  className="composer-thinking"
+                  aria-label="思考模式"
+                  aria-pressed={thinkingEnabled}
+                  disabled={
+                    busy ||
+                    thinkingControl === "none" ||
+                    thinkingControl === "always"
+                  }
+                  title={
+                    thinkingControl === "none"
+                      ? "此模型未配置思考开关"
+                      : thinkingControl === "always"
+                        ? "此模型始终开启思考"
+                        : thinkingEnabled
+                          ? "关闭思考模式"
+                          : "开启思考模式"
+                  }
+                  onClick={() => setThinking(!thinking)}
+                >
+                  <Brain size={15} />
+                  <span>
+                    {thinkingControl === "always" ? "始终思考" : "思考"}
+                  </span>
+                </button>
                 <DropdownMenu.Root>
                   <DropdownMenu.Trigger asChild>
                     <button
                       className="composer-model"
                       aria-label="选择模型"
-                      title={settings.model_name || "配置模型"}
+                      disabled={busy}
+                      title={selected?.model.name || "配置模型"}
                     >
-                      <span>
-                        {settings.model_configured
-                          ? settings.model_name
-                          : "选择模型"}
-                      </span>
+                      <span>{selected?.model.name || "选择模型"}</span>
                       <ChevronDown size={13} />
                     </button>
                   </DropdownMenu.Trigger>
@@ -553,16 +599,39 @@ export function ChatPage({
                       collisionPadding={16}
                     >
                       <DropdownMenu.Label className="model-menu-label">
-                        当前模型
+                        模型
                       </DropdownMenu.Label>
-                      <div className="model-menu-current">
-                        <span>
-                          {settings.model_configured
-                            ? settings.model_name
-                            : "尚未连接模型"}
-                        </span>
-                        {settings.model_configured && <Check size={15} />}
-                      </div>
+                      {choices
+                        .filter((x) => x.profile.key_configured)
+                        .map((choice) => (
+                          <DropdownMenu.Item
+                            key={choice.key}
+                            className="model-menu-item model-choice"
+                            onSelect={() => {
+                              setModelKey(choice.key);
+                              setThinking(false);
+                            }}
+                          >
+                            <span>
+                              <strong>{choice.model.name}</strong>
+                              <small>
+                                {choice.profile.label}
+                                {choice.profile.id ===
+                                  settings.default_provider &&
+                                choice.model.name ===
+                                  choice.profile.default_model
+                                  ? " · 默认"
+                                  : ""}
+                              </small>
+                            </span>
+                            {selected?.key === choice.key && (
+                              <Check size={15} />
+                            )}
+                          </DropdownMenu.Item>
+                        ))}
+                      {!choices.some((x) => x.profile.key_configured) && (
+                        <div className="model-menu-current">尚未连接模型</div>
+                      )}
                       <DropdownMenu.Separator className="model-menu-separator" />
                       <DropdownMenu.Item
                         className="model-menu-item"
@@ -592,7 +661,7 @@ export function ChatPage({
                     size="icon"
                     disabled={
                       uploading ||
-                      !settings.model_configured ||
+                      !modelReady ||
                       (!draft.trim() && !images.length)
                     }
                     onClick={() => void send()}
@@ -604,61 +673,6 @@ export function ChatPage({
             </div>
           </div>
         </div>
-        {empty && (
-          <div className="welcome-followup">
-            <section className="home-continuity" aria-label="学习与提醒">
-              <div className="continuity-heading">
-                <h2>这些事，我们还记着</h2>
-              </div>
-              <div className="continuity-grid">
-                <button
-                  className="continuity-card"
-                  onClick={() => {
-                    if (latestGoal)
-                      localStorage.setItem("bai-current-goal", latestGoal.id);
-                    onAction("learning", !latestGoal);
-                  }}
-                >
-                  <span className="continuity-icon">
-                    <BookOpen size={21} />
-                  </span>
-                  <span className="continuity-copy">
-                    <small>
-                      {latestGoal ? "接着上次学" : "从好奇的事开始"}
-                    </small>
-                    <strong>{latestGoal?.title || "开始一段新的学习"}</strong>
-                    <span>
-                      {latestGoal
-                        ? `${latestGoal.nodes.filter((value) => value.status === "passed").length} / ${latestGoal.nodes.length} 个知识点通过练习`
-                        : "告诉 Bai 你的目标，一起慢慢学"}
-                    </span>
-                  </span>
-                  <ArrowRight className="continuity-next" size={16} />
-                </button>
-                <button
-                  className="continuity-card"
-                  onClick={() => onAction("reminders", !nextReminder)}
-                >
-                  <span className="continuity-icon">
-                    <Bell size={21} />
-                  </span>
-                  <span className="continuity-copy">
-                    <small>
-                      {nextReminder ? "下一件小事" : "给自己留点时间"}
-                    </small>
-                    <strong>{nextReminder?.title || "安排一个小提醒"}</strong>
-                    <span>
-                      {nextReminder
-                        ? dateTime(nextReminder.due_at)
-                        : "重要的小事，不用一直惦记"}
-                    </span>
-                  </span>
-                  <ArrowRight className="continuity-next" size={16} />
-                </button>
-              </div>
-            </section>
-          </div>
-        )}
       </div>
     </div>
   );

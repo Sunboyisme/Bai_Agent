@@ -5,18 +5,20 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy
 backend = Path(SPECPATH)
 datas = [(str(backend / "migrations"), "migrations"), (str(backend / "alembic.ini"), ".")]
 hiddenimports = []
-for package in ("uvicorn", "langchain", "langchain_core", "langchain_openai", "langgraph", "keyring.backends", "tiktoken_ext"):
-    hiddenimports += collect_submodules(package)
-for package in ("langchain_core", "tzdata", "certifi"):
+for package in ("uvicorn", "langchain", "langchain_core", "langchain_openai", "langgraph", "keyring.backends", "tiktoken_ext", "fastmcp", "mcp", "mcp_types", "httpx2"):
+    # The optional CLI imports typer and may sys.exit during collection; the
+    # desktop backend uses the client/runtime, never these command line apps.
+    hiddenimports += collect_submodules(package, filter=lambda name: not name.startswith(("mcp.cli", "fastmcp.cli", "mcp.__main__", "fastmcp.__main__")))
+for package in ("langchain_core", "tzdata", "certifi", "fastmcp", "mcp", "mcp_types"):
     datas += collect_data_files(package)
-for distribution in ("langchain", "langchain-core", "langchain-openai", "langgraph", "langgraph-checkpoint", "langgraph-checkpoint-sqlite", "langgraph-prebuilt", "keyring", "APScheduler", "tiktoken"):
+for distribution in ("langchain", "langchain-core", "langchain-openai", "langgraph", "langgraph-checkpoint", "langgraph-checkpoint-sqlite", "langgraph-prebuilt", "keyring", "APScheduler", "tiktoken", "fastmcp", "fastmcp-slim", "mcp", "mcp-types", "httpx2"):
     datas += copy_metadata(distribution)
 
 a = Analysis(
     [str(backend / "desktop_backend.py")], pathex=[str(backend)],
     binaries=[], datas=datas, hiddenimports=hiddenimports,
     hookspath=[], hooksconfig={}, runtime_hooks=[],
-    excludes=["pytest", "PyInstaller", "tkinter"],
+    excludes=["pytest", "PyInstaller", "tkinter", "mcp.cli", "fastmcp.cli", "mcp.__main__", "fastmcp.__main__"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

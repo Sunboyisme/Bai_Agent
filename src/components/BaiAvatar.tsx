@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { followAvatarGaze, RESTING_EYE_TRANSFORMS } from "../lib/avatar-gaze";
 import "../styles/bai-avatar.css";
 
@@ -11,10 +11,13 @@ const restingEyes = {
 export function BaiAvatar({
   className,
   motion = "idle",
+  interactive = false,
 }: {
   className?: string;
   motion?: AvatarMotion;
+  interactive?: boolean;
 }) {
+  const [reaction, setReaction] = useState(0);
   const gradientId = useId();
   const avatarRef = useRef<HTMLSpanElement>(null);
   const gazeRef = useRef<SVGGElement>(null);
@@ -24,10 +27,12 @@ export function BaiAvatar({
     return followAvatarGaze(avatarRef.current, gazeRef.current);
   }, [motion]);
 
-  return (
+  const artwork = (
     <span
       ref={avatarRef}
-      className={["bai-avatar", className].filter(Boolean).join(" ")}
+      className={["bai-avatar", !interactive && className]
+        .filter(Boolean)
+        .join(" ")}
       data-motion={motion}
       style={restingEyes}
       aria-hidden="true"
@@ -79,5 +84,19 @@ export function BaiAvatar({
         </span>
       </span>
     </span>
+  );
+  return interactive ? (
+    <button
+      type="button"
+      className={["avatar-interaction", className].filter(Boolean).join(" ")}
+      aria-label="和XiaoXi打个招呼"
+      title="和XiaoXi打个招呼"
+      data-reaction={reaction ? (reaction % 2 ? "happy" : "wave") : undefined}
+      onClick={() => setReaction((value) => value + 1)}
+    >
+      {artwork}
+    </button>
+  ) : (
+    artwork
   );
 }

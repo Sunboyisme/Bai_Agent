@@ -1,0 +1,162 @@
+import { useEffect, useState, type ReactNode } from "react";
+import {
+  Bell,
+  Copy,
+  Minus,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Square,
+  X,
+} from "lucide-react";
+import { isTauri, invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { AppMenu, type AppMenuActions } from "./AppMenu";
+
+export function WindowFrame({
+  children,
+  collapsed,
+  onToggle,
+  onReminders,
+  unread = 0,
+  reminder = false,
+  sidebarAvailable = true,
+  menuActions,
+}: {
+  children: ReactNode;
+  collapsed: boolean;
+  onToggle?: () => void;
+  onReminders?: () => void;
+  unread?: number;
+  reminder?: boolean;
+  sidebarAvailable?: boolean;
+  menuActions?: AppMenuActions;
+}) {
+  const native = isTauri();
+  const [maximized, setMaximized] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!native || reminder) return;
+    let active = true;
+    const window = getCurrentWindow();
+    const sync = () =>
+      window
+        .isMaximized()
+        .then((value) => {
+          if (active) setMaximized(value);
+        })
+        .catch(() => {});
+    void sync();
+    const stop = window.onResized(() => void sync());
+    return () => {
+      active = false;
+      void stop.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, [native, reminder]);
+  useEffect(() => {
+    if (native && !reminder) {
+      void invoke("ensure_window_visible").catch(() =>
+        setError("窗口适配未完成，可从视图菜单重试。"),
+      );
+    }
+  }, [native, reminder]);
+
+  async function control(action: () => Promise<void>) {
+    try {
+      setError("");
+      await action();
+    } catch {
+      setError("窗口操作未完成，请重试。");
+    }
+  }
+  if (reminder) return children;
+  return (
+    <div className="window-frame">
+      <header className="window-titlebar app-topbar" data-tauri-drag-region>
+        <span className="window-brand" data-tauri-drag-region>
+          XiaoXi
+        </span>
+        {sidebarAvailable && (
+          <button
+            className="sidebar-toggle"
+            aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
+            title={collapsed ? "展开侧栏" : "收起侧栏"}
+            aria-expanded={!collapsed}
+            aria-controls="chat-sidebar"
+            disabled={!onToggle}
+            onClick={onToggle}
+          >
+            {collapsed ? (
+              <PanelLeftOpen size={18} />
+            ) : (
+              <PanelLeftClose size={18} />
+            )}
+          </button>
+        )}
+        {menuActions && (
+          <AppMenu
+            actions={menuActions}
+            collapsed={collapsed}
+            onToggle={onToggle}
+            onFitWindow={
+              native
+                ? () => void control(() => invoke("restore_window_layout"))
+                : undefined
+            }
+            onClose={
+              native
+                ? () => void control(() => getCurrentWindow().close())
+                : undefined
+            }
+            onError={setError}
+          />
+        )}
+        {import.meta.env.DEV && <small className="preview-label">测试版</small>}
+        <div className="window-drag-space" data-tauri-drag-region />
+        {onReminders && (
+          <button
+            className="bell-button"
+            aria-label="查看提醒"
+            onClick={onReminders}
+          >
+            <Bell size={17} />
+            {unread > 0 && <span />}
+          </button>
+        )}
+        {native && (
+          <div className="window-controls">
+            <button
+              aria-label="最小化"
+              title="最小化"
+              onClick={() => void control(() => getCurrentWindow().minimize())}
+            >
+              <Minus size={15} />
+            </button>
+            <button
+              aria-label={maximized ? "还原窗口" : "最大化"}
+              title={maximized ? "还原窗口" : "最大化"}
+              onClick={() =>
+                void control(() => getCurrentWindow().toggleMaximize())
+              }
+            >
+              {maximized ? <Copy size={13} /> : <Square size={13} />}
+            </button>
+            <button
+              className="window-close"
+              aria-label="关闭窗口"
+              title="关闭窗口"
+              onClick={() => void control(() => getCurrentWindow().close())}
+            >
+              <X size={17} />
+            </button>
+          </div>
+        )}
+      </header>
+      {error && (
+        <div className="window-control-error" role="alert">
+          {error}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}

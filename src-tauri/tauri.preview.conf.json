@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "com.qinbai.baiagent.preview",
+  "build": {
+    "beforeDevCommand": "pnpm exec vite --host 127.0.0.1 --port 5190 --strictPort",
+    "devUrl": "http://127.0.0.1:5190"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "XiaoXi · 测试版",
+        "width": 1280,
+        "height": 720,
+        "minWidth": 700,
+        "minHeight": 440,
+        "center": true,
+        "decorations": false,
+        "visible": false
+      }
+    ]
+  }
+}

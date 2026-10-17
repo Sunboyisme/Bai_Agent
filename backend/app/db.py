@@ -42,11 +42,42 @@ class Settings(Base):
     vision_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     timezone: Mapped[str] = mapped_column(String(100), default="Asia/Shanghai")
     memory_mode: Mapped[str] = mapped_column(String(20), default="auto")
+    model_providers: Mapped[list] = mapped_column(JSON, default=list)
+    default_provider: Mapped[str] = mapped_column(String(30), default="custom")
 
 
 class Conversation(Record, Base):
     __tablename__ = "conversations"
     title: Mapped[str] = mapped_column(String(200), default="新对话")
+
+
+class MCPServer(Record, Base):
+    __tablename__ = "mcp_servers"
+    __table_args__ = (UniqueConstraint("profile_id", "name"),)
+    name: Mapped[str] = mapped_column(String(100))
+    transport: Mapped[str] = mapped_column(String(30))
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    tested_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
+class MCPTool(Base):
+    __tablename__ = "mcp_tools"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    server_id: Mapped[str] = mapped_column(
+        ForeignKey("mcp_servers.id", ondelete="CASCADE"), index=True
+    )
+    remote_name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text, default="")
+    input_schema: Mapped[dict] = mapped_column(JSON, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    present: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class BuiltinToolState(Base):
+    __tablename__ = "builtin_tool_states"
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class Message(Record, Base):
@@ -57,6 +88,7 @@ class Message(Record, Base):
     role: Mapped[str] = mapped_column(String(20))
     content: Mapped[str] = mapped_column(Text)
     attachment_ids: Mapped[list] = mapped_column(JSON, default=list)
+    provider_context: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class Run(Record, Base):
@@ -68,6 +100,7 @@ class Run(Record, Base):
     result: Mapped[dict] = mapped_column(JSON, default=dict)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     usage: Mapped[dict] = mapped_column(JSON, default=dict)
+    model_config: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class RunEvent(Base):
@@ -179,6 +212,28 @@ class Notification(Record, Base):
     body: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="pending")
     overdue: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class WechatState(Base):
+    __tablename__ = "wechat_state"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class WechatInbox(Base):
+    __tablename__ = "wechat_inbox"
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(36))
+
+
+class WechatDelivery(Record, Base):
+    __tablename__ = "wechat_deliveries"
+    source_key: Mapped[str] = mapped_column(Text, unique=True)
+    account_id: Mapped[str] = mapped_column(Text)
+    notification_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    content: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    error: Mapped[str] = mapped_column(Text, default="")
 
 
 class Attachment(Record, Base):

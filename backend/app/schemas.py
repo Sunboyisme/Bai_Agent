@@ -1,7 +1,15 @@
 from datetime import datetime
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    field_validator,
+    model_validator,
+)
 
 
 class ReadModel(BaseModel):
@@ -14,6 +22,72 @@ class RecordRead(ReadModel):
     updated_at: str
 
 
+ProviderId = Literal["bailian", "deepseek", "kimi", "zhipu", "siliconflow", "custom"]
+ThinkingMode = Literal["auto", "none", "always", "enable_thinking", "thinking", "reasoning_effort"]
+
+
+class ModelOption(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    vision_enabled: bool = False
+    thinking_mode: ThinkingMode = "auto"
+
+    @field_validator("name")
+    @classmethod
+    def model_name(cls, value):
+        if not value.strip():
+            raise ValueError("模型名称不能为空")
+        return value.strip()
+
+
+class ModelOptionRead(ModelOption):
+    thinking_control: ThinkingMode
+
+
+class ProviderWrite(BaseModel):
+    id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    provider_type: ProviderId = "custom"
+    label: str = Field(default="", max_length=100)
+    model_url: HttpUrl
+    models: list[ModelOption] = Field(default_factory=list, max_length=50)
+    default_model: str = Field(default="", max_length=200)
+    api_key: str | None = Field(default=None, max_length=4096)
+
+    @model_validator(mode="after")
+    def valid_models(self):
+        self.default_model = self.default_model.strip()
+        if self.model_url.username or self.model_url.password or self.model_url.query or self.model_url.fragment:
+            raise ValueError("接口地址不能包含凭据、查询参数或片段")
+        names = [x.name for x in self.models]
+        if len(set(names)) != len(names) or (self.default_model and self.default_model not in names):
+            raise ValueError("模型名称不能重复，默认模型必须在模型列表中")
+        if names and not self.default_model:
+            self.default_model = names[0]
+        return self
+
+
+class ProviderRead(BaseModel):
+    id: str
+    provider_type: ProviderId
+    label: str
+    model_url: str
+    models: list[ModelOptionRead]
+    default_model: str
+    key_configured: bool
+
+
+class ProviderPresetRead(BaseModel):
+    id: ProviderId
+    label: str
+    model_url: str
+    models: list[ModelOption]
+
+
+class ModelSelection(BaseModel):
+    provider_id: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    model_name: str = Field(min_length=1, max_length=200)
+    thinking_enabled: bool = False
+
+
 class SettingsRead(BaseModel):
     model_url: str
     model_name: str
@@ -22,6 +96,9 @@ class SettingsRead(BaseModel):
     memory_mode: Literal["auto", "confirm"]
     model_configured: bool
     search_configured: bool
+    providers: list[ProviderRead]
+    default_provider: str
+    provider_presets: list[ProviderPresetRead]
 
 
 class ToolRead(BaseModel):
@@ -30,16 +107,147 @@ class ToolRead(BaseModel):
     description: str
     available: bool
     note: str
+    enabled: bool
+    source: Literal["builtin", "mcp"]
+    source_label: str
+    server_id: str | None = None
+    parameters: dict = Field(default_factory=dict)
+
+
+class ToolUpdate(BaseModel):
+    enabled: bool
+
+
+class MCPServerWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=100)
+    transport: Literal["stdio", "streamable_http"]
+    url: str = Field(default="", max_length=2048)
+    command: str = Field(default="", max_length=2048)
+    args: list[str] = Field(default_factory=list, max_length=100)
+    cwd: str = Field(default="", max_length=2048)
+    headers: dict[str, str | None] = Field(default_factory=dict)
+    env: dict[str, str | None] = Field(default_factory=dict)
+    clear_headers: list[str] = Field(default_factory=list)
+    clear_env: list[str] = Field(default_factory=list)
+    enabled: bool = False
+
+    @model_validator(mode="after")
+    def connection(self):
+        import re
+        from pathlib import Path
+        from urllib.parse import urlsplit
+
+        if self.transport == "stdio":
+            if not self.command or self.url or self.headers:
+                raise ValueError("本地服务需要命令，不能同时配置 URL 或请求头")
+            if self.cwd and not Path(self.cwd).is_absolute():
+                raise ValueError("工作目录需要绝对路径")
+        else:
+            try:
+                value = urlsplit(self.url)
+                valid = value.scheme in {"http", "https"} and bool(value.hostname)
+                valid = valid and not (
+                    value.username or value.password or value.fragment or value.query
+                )
+                _ = value.port  # also validates numeric port syntax
+            except ValueError:
+                valid = False
+            if not valid or self.command or self.args or self.cwd or self.env:
+                raise ValueError(
+                    "远程服务需要无凭据及查询参数的 HTTP(S) 地址；密钥请填请求头"
+                )
+        if len(self.headers) + len(self.env) > 100:
+            raise ValueError("凭据字段过多")
+        for name, value in self.env.items():
+            if not re.fullmatch(
+                r"[A-Za-z_][A-Za-z0-9_]*", name
+            ) or name.upper().startswith("BAI_"):
+                raise ValueError("环境变量名称无效或为XiaoXi保留名称")
+            if value and (len(value) > 8192 or "\0" in value):
+                raise ValueError("环境变量值无效")
+        for name, value in self.headers.items():
+            if not re.fullmatch(r"[A-Za-z0-9_-]+", name) or name.lower() in {
+                "host",
+                "content-length",
+                "connection",
+            }:
+                raise ValueError("请求头名称无效")
+            if value and (len(value) > 8192 or any(c in value for c in "\r\n\0")):
+                raise ValueError("请求头值无效")
+        if any(
+            "\0" in x or len(x) > 8192 for x in [self.command, self.cwd, *self.args]
+        ):
+            raise ValueError("命令或参数无效")
+        return self
+
+
+class MCPServerRead(BaseModel):
+    id: str
+    name: str
+    transport: Literal["stdio", "streamable_http"]
+    url: str
+    command: str
+    args: list[str]
+    cwd: str
+    headers: dict[str, bool]
+    env: dict[str, bool]
+    enabled: bool
+    status: Literal["disabled", "disconnected", "connecting", "connected", "error"]
+    error: str
+    tested_at: str | None
+    tool_count: int
+
+
+class MCPImport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mcpServers: dict[str, dict] = Field(min_length=1, max_length=50)
+
+
+class WechatDeliveryRead(BaseModel):
+    id: str
+    status: str
+    error: str
+    created_at: str
+
+
+class WechatStatus(BaseModel):
+    enabled: bool
+    bound: bool
+    reminders_enabled: bool
+    phase: str
+    qr_image: str
+    error: str
+    deliveries: list[WechatDeliveryRead]
+
+
+class WechatOptions(BaseModel):
+    enabled: bool
+    reminders_enabled: bool = False
+
+
+class WechatVerify(BaseModel):
+    code: str = Field(pattern=r"^[0-9]{4,8}$")
 
 
 class SettingsUpdate(BaseModel):
-    model_url: HttpUrl
-    model_name: str = Field(max_length=200)
+    model_url: HttpUrl = "https://api.openai.com/v1"
+    model_name: str = Field(default="", max_length=200)
     model_key: str | None = Field(default=None, max_length=4096)
     search_key: str | None = Field(default=None, max_length=4096)
     vision_enabled: bool = False
     timezone: str = "Asia/Shanghai"
     memory_mode: Literal["auto", "confirm"] | None = None
+    providers: list[ProviderWrite] | None = Field(default=None, max_length=50)
+    default_provider: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+
+    @model_validator(mode="after")
+    def provider_list(self):
+        if self.providers is not None:
+            ids = [x.id for x in self.providers]
+            if len(set(ids)) != len(ids):
+                raise ValueError("服务商不能重复")
+        return self
 
     @field_validator("model_url")
     @classmethod
@@ -79,6 +287,7 @@ class MessageRead(RecordRead):
 class ChatInput(BaseModel):
     content: str = Field(min_length=1, max_length=30000)
     attachment_ids: list[str] = Field(default_factory=list, max_length=4)
+    model_selection: ModelSelection | None = None
 
 
 class RunRead(RecordRead):

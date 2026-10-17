@@ -34,6 +34,8 @@ def isolate(monkeypatch):
     monkeypatch.setattr(main, "secret_set", put)
     monkeypatch.setattr(search, "secret_get", get)
     monkeypatch.setattr(tools, "secret_get", get)
+    monkeypatch.setattr(config, "secret_get", get)
+    monkeypatch.setattr(config, "secret_set", put)
     yield vault
 
 

@@ -7,7 +7,7 @@ test.skip(
 test.describe.configure({ mode: "serial" });
 
 async function send(page: Page, text: string) {
-  await page.getByLabel("发送给 Bai 的消息").fill(text);
+  await page.getByLabel("发送给XiaoXi的消息").fill(text);
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "发送消息", exact: true }),
@@ -18,7 +18,7 @@ async function send(page: Page, text: string) {
 test.beforeEach(async ({ page, request }) => {
   const response = await request.put("/api/v1/settings", {
     data: {
-      model_url: "http://127.0.0.1:8889/v1",
+      model_url: process.env.BAI_MOCK_URL || "http://127.0.0.1:8889/v1",
       model_name: "mock-test",
       memory_mode: "auto",
     },
@@ -82,7 +82,8 @@ test("pending private information persists, is excluded from a new chat, then co
   await expect(page.locator(".message.assistant").last()).toContainText(
     '"private_available": false',
   );
-  await page.getByRole("button", { name: "记忆", exact: true }).click();
+  await page.getByRole("button", { name: "连接与设置", exact: true }).click();
+  await page.getByRole("tab", { name: "记忆", exact: true }).click();
   await page
     .getByLabel("待确认记忆")
     .getByRole("button", { name: "记住", exact: true })
@@ -102,11 +103,14 @@ test("manual mode persists and Ignore discards a proposal; explicit requests sti
   page,
   request,
 }) => {
-  await page.getByRole("button", { name: "记忆", exact: true }).click();
-  await page.getByLabel("记忆保存方式").selectOption("confirm");
+  await page.getByRole("button", { name: "连接与设置", exact: true }).click();
+  await page.getByRole("tab", { name: "记忆", exact: true }).click();
+  await page.getByRole("combobox", { name: "记忆保存方式" }).click();
+  await page.getByRole("option", { name: "每次确认", exact: true }).click();
   await expect(page.getByLabel("记忆保存方式")).toBeEnabled();
   await page.reload();
-  await page.getByRole("button", { name: "记忆", exact: true }).click();
+  await page.getByRole("button", { name: "连接与设置", exact: true }).click();
+  await page.getByRole("tab", { name: "记忆", exact: true }).click();
   await expect(page.getByLabel("记忆保存方式")).toHaveValue("confirm");
   await page.getByRole("button", { name: "开启新对话", exact: true }).click();
   await send(page, "我喜欢简短的回答");
@@ -121,7 +125,8 @@ test("manual mode persists and Ignore discards a proposal; explicit requests sti
     "confirmed",
   );
   await page.getByRole("button", { name: "连接与设置", exact: true }).click();
-  await expect(page.getByLabel("保存方式", { exact: true })).toHaveValue(
+  await page.getByRole("tab", { name: "记忆", exact: true }).click();
+  await expect(page.getByLabel("记忆保存方式", { exact: true })).toHaveValue(
     "confirm",
   );
 });
@@ -141,7 +146,8 @@ test("memory source, editing and deletion survive reload, including narrow layou
   request,
 }) => {
   await send(page, "我喜欢简短的回答");
-  await page.getByRole("button", { name: "记忆", exact: true }).click();
+  await page.getByRole("button", { name: "连接与设置", exact: true }).click();
+  await page.getByRole("tab", { name: "记忆", exact: true }).click();
   const card = page.locator(".memory-card");
   await card.getByText("查看来源", { exact: true }).click();
   await expect(card.locator("blockquote")).toHaveText("我喜欢简短的回答");
@@ -171,7 +177,8 @@ test("memory source, editing and deletion survive reload, including narrow layou
   await page.getByRole("button", { name: "保存记忆", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.reload();
-  await page.getByRole("button", { name: "记忆", exact: true }).click();
+  await page.getByRole("button", { name: "连接与设置", exact: true }).click();
+  await page.getByRole("tab", { name: "记忆", exact: true }).click();
   await expect(page.locator(".memory-card")).toContainText(
     "我喜欢先看实例再看理论",
   );

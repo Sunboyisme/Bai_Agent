@@ -21,7 +21,7 @@ test("small window keeps Chinese title and main actions accessible", async ({
   await page.setViewportSize({ width: 1262, height: 624 });
   const box = await page.locator(".welcome h1").boundingBox();
   expect(box?.y).toBeGreaterThanOrEqual(56);
-  const composer = page.getByLabel("发送给 Bai 的消息");
+  const composer = page.getByLabel("发送给XiaoXi的消息");
   await composer.fill("检查换行");
   await composer.press("Shift+Enter");
   await expect(composer).toHaveValue("检查换行\n");
@@ -31,21 +31,28 @@ test("small window keeps Chinese title and main actions accessible", async ({
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu")).toHaveCount(0);
   await expect(model).toBeFocused();
-  await page.getByRole("button", { name: "查看 Agent 工具箱" }).click();
-  await page.getByRole("menuitem", { name: /查询天气/ }).click();
-  await expect(composer).toHaveValue(/广州/);
-  await expect(composer).toBeFocused();
+  const mcp = page.getByRole("button", { name: "MCP 工具", exact: true });
+  await mcp.click();
+  await expect(page.getByRole("menuitem", { name: /查询天气/ })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(mcp).toBeFocused();
+  await expect(composer).toHaveValue("检查换行\n");
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
-test("avatar toggles sidebar and preserves draft, navigation and saved preference", async ({
+test("separate sidebar toggle preserves draft, navigation and saved preference", async ({
   page,
 }) => {
-  const draft = page.getByLabel("发送给 Bai 的消息");
+  const draft = page.getByLabel("发送给XiaoXi的消息");
   await draft.fill("先留在这里，等我想清楚再发送");
   const collapse = page.getByRole("button", { name: "收起侧栏", exact: true });
-  await expect(page.locator(".sidebar-toggle")).toHaveCount(0);
-  await expect(collapse).toHaveClass("brand-avatar");
+  const avatar = page
+    .getByRole("button", { name: "和XiaoXi打个招呼", exact: true })
+    .first();
+  await avatar.click();
+  await expect(avatar).toHaveAttribute("data-reaction", "happy");
+  await expect(collapse).toBeVisible();
+  await expect(page.locator(".chat-sidebar .new-chat-button")).toBeVisible();
   await expect(collapse).toHaveAttribute("aria-expanded", "true");
   await collapse.click();
   await expect(
@@ -54,7 +61,8 @@ test("avatar toggles sidebar and preserves draft, navigation and saved preferenc
   await expect(draft).toHaveValue("先留在这里，等我想清楚再发送");
   const rail = await page.locator(".sidebar").boundingBox();
   expect(rail?.width).toBeLessThan(100);
-  await page.getByRole("button", { name: "记忆", exact: true }).click();
+  await page.getByRole("button", { name: "连接与设置", exact: true }).click();
+  await page.getByRole("tab", { name: "记忆", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "记忆", exact: true }),
   ).toBeVisible();
@@ -81,21 +89,17 @@ test("avatar toggles sidebar and preserves draft, navigation and saved preferenc
   ).toHaveCount(0);
 });
 
-test("toolbox shows built-ins, search setup and fills prompts in the same chat", async ({
+test("MCP toolbox hides built-ins and opens configuration", async ({
   page,
 }) => {
-  const toolbox = page.getByRole("button", { name: "查看 Agent 工具箱" });
+  const toolbox = page.getByRole("button", { name: "MCP 工具", exact: true });
   await toolbox.click();
-  await expect(page.getByRole("menuitem", { name: /查询天气/ })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: /搜索资料/ })).toContainText(
-    "需配置 Tavily 密钥",
-  );
-  await page.getByRole("menuitem", { name: /计算器/ }).click();
-  await expect(page.getByLabel("发送给 Bai 的消息")).toHaveValue(
-    "帮我计算：(199 + 89) * 0.85",
-  );
-  await expect(page.getByLabel("发送给 Bai 的消息")).toBeFocused();
-  await toolbox.click();
+  await expect(
+    page.getByRole("menuitem", { name: /计算器|查询天气/ }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("还没有配置 MCP 工具", { exact: true }),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(toolbox).toBeFocused();
 });
@@ -103,11 +107,13 @@ test("toolbox shows built-ins, search setup and fills prompts in the same chat",
 test("configure own compatible API and test connection", async ({ page }) => {
   await page.getByRole("button", { name: "连接与设置", exact: true }).click();
   await page
+    .getByRole("button", { name: /^编辑连接 / })
+    .first()
+    .click();
+  await page
     .getByLabel("接口地址", { exact: true })
-    .fill("http://127.0.0.1:8877/v1");
+    .fill(process.env.BAI_MOCK_URL || "http://127.0.0.1:8877/v1");
   await page.getByLabel("模型名称", { exact: true }).fill("mock-test");
-  await page.getByRole("button", { name: "保存设置", exact: true }).click();
-  await expect(page.getByText("设置已保存", { exact: false })).toBeVisible();
   await page
     .getByRole("button", { name: "保存并测试模型", exact: true })
     .click();
@@ -119,19 +125,21 @@ test("configure own compatible API and test connection", async ({ page }) => {
 test("new conversation stream saves final answer and tool memory", async ({
   page,
 }) => {
-  await page.getByLabel("发送给 Bai 的消息").fill("请记住我喜欢先看例子");
+  await page.getByLabel("发送给XiaoXi的消息").fill("请记住我喜欢先看例子");
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
   await expect(
     page
       .locator(".message.assistant")
       .getByText("工具已经执行，结果已保存。", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "记忆", exact: true }).click();
+  await page.getByRole("button", { name: "连接与设置", exact: true }).click();
+  await page.getByRole("tab", { name: "记忆", exact: true }).click();
   await expect(
     page.getByText("我喜欢先看例子再学习理论", { exact: true }),
   ).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "记忆", exact: true }).click();
+  await page.getByRole("button", { name: "连接与设置", exact: true }).click();
+  await page.getByRole("tab", { name: "记忆", exact: true }).click();
   await expect(
     page.getByText("我喜欢先看例子再学习理论", { exact: true }),
   ).toBeVisible();
@@ -141,7 +149,7 @@ test("agent calls multiple utility tools and restores results after reload", asy
   page,
 }) => {
   await page
-    .getByLabel("发送给 Bai 的消息")
+    .getByLabel("发送给XiaoXi的消息")
     .fill("帮我计算并换算单位，再查一下日期。");
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
   await expect(page.getByText("已调用 3 项工具")).toBeVisible();
@@ -199,7 +207,8 @@ test("course, teaching, feedback, next node and reload progress", async ({
 });
 
 test("manual memories can be created, edited and deleted", async ({ page }) => {
-  await page.getByRole("button", { name: "记忆", exact: true }).click();
+  await page.getByRole("button", { name: "连接与设置", exact: true }).click();
+  await page.getByRole("tab", { name: "记忆", exact: true }).click();
   await page.getByRole("button", { name: "添加记忆", exact: true }).click();
   await page.getByLabel("想记住什么").fill("浏览器测试：正在写个人 Agent");
   await page.getByRole("button", { name: "保存记忆", exact: true }).click();

@@ -9,6 +9,51 @@
   flex-shrink: 0;
   pointer-events: none;
 }
+.avatar-interaction {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.avatar-interaction:is(:hover, :focus-visible) .bai-avatar-response {
+  transform: translateY(-3px) rotate(-7deg) scale(1.06);
+}
+.avatar-interaction:active .bai-avatar-response {
+  transform: translateY(2px) scale(1.08, 0.9);
+}
+.avatar-interaction[data-reaction="happy"] .bai-avatar-response {
+  animation: bai-avatar-happy 700ms ease;
+}
+.avatar-interaction[data-reaction="wave"] .bai-avatar-response {
+  animation: bai-avatar-wave 700ms ease;
+}
+@keyframes bai-avatar-happy {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  30% {
+    transform: translateY(-12%) rotate(-10deg) scale(1.05);
+  }
+  60% {
+    transform: translateY(-5%) rotate(8deg);
+  }
+}
+@keyframes bai-avatar-wave {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  30% {
+    transform: translateY(-12%) rotate(10deg) scale(1.05);
+  }
+  60% {
+    transform: translateY(-5%) rotate(-8deg);
+  }
+}
 .bai-avatar svg {
   display: block;
   width: 100%;
@@ -88,6 +133,11 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .avatar-interaction[data-reaction] .bai-avatar-response,
+  .avatar-interaction:is(:hover, :focus-visible, :active) .bai-avatar-response {
+    animation: none;
+    transform: none;
+  }
   .bai-avatar[data-motion] .bai-avatar-response,
   .bai-avatar[data-motion] .bai-avatar-float,
   .bai-avatar[data-motion] .bai-avatar-eyes {

@@ -1,35 +1,44 @@
 import asyncio
-import contextlib
 import hmac
 import io
 import json
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request
-from fastapi.responses import StreamingResponse, FileResponse
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, StreamingResponse
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 from PIL import Image, ImageOps, UnidentifiedImageError
+from sqlalchemy import select
+
+from . import (
+    agent,
+    learning,
+    mcp_service,
+    memory,
+    model_profiles,
+    provider,
+    reminders,
+    runs,
+    tools,
+    wechat,
+)
 from . import (
     db as store,
+)
+from . import (
     schemas as s,
-    provider,
-    learning,
-    runs,
-    agent,
-    reminders,
-    tools,
-    memory,
 )
 from .config import (
+    ATTACHMENTS_DIR,
     AUTH_TOKEN,
     DATA_DIR,
-    ATTACHMENTS_DIR,
     PROFILE_ID,
+    frontend_origins,
     secret_get,
     secret_set,
 )
@@ -38,6 +47,12 @@ from .config import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     store.migrate()
+    mcp_service.manager = mcp_service.MCPManager()
+    with store.Session() as db:
+        for server in db.scalars(
+            select(store.MCPServer).where(store.MCPServer.enabled.is_(True))
+        ):
+            mcp_service.manager.start(server)
     async with AsyncSqliteSaver.from_conn_string(
         str(DATA_DIR / "checkpoints.sqlite")
     ) as saver:
@@ -54,16 +69,37 @@ async def lifespan(app: FastAPI):
         )
         scheduler.start()
         await reminders.tick()
+        app.state.wechat = wechat.WechatChannel()
+        app.state.wechat.start()
         yield
+        await app.state.wechat.close()
         scheduler.shutdown(wait=False)
         outstanding = list(runs.tasks.values())
         for task in outstanding:
             task.cancel()
         if outstanding:
             await asyncio.gather(*outstanding, return_exceptions=True)
+        await mcp_service.manager.close()
 
 
-app = FastAPI(title="Bai Agent API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="XiaoXi API", version="0.1.2", lifespan=lifespan)
+
+
+# Pydantic's default response includes the rejected input, including credentials.
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, error: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "输入格式无效，请检查必填项、配置字段和地址；密钥应填写在请求头或环境变量中。"
+        },
+    )
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -72,6 +108,7 @@ app.add_middleware(
         "http://tauri.localhost",
         "https://tauri.localhost",
         "tauri://localhost",
+        *frontend_origins(),
     ],
     allow_methods=["*"],
     allow_headers=["Authorization", "Content-Type"],
@@ -81,7 +118,7 @@ app.add_middleware(
 def auth(request: Request):
     value = request.headers.get("Authorization", "")
     if not hmac.compare_digest(value, "Bearer " + AUTH_TOKEN):
-        raise HTTPException(401, "应用连接未认证，请通过 Bai Agent 启动。")
+        raise HTTPException(401, "应用连接未认证，请通过 XiaoXi 启动。")
 
 
 def database():
@@ -113,14 +150,20 @@ def goal_read(db, goal):
 
 def settings_read(db):
     value = db.get(store.Settings, PROFILE_ID)
+    profiles = model_profiles.profiles(value)
+    for profile in profiles:
+        profile["key_configured"] = bool(secret_get(model_profiles.secret_ref(profile["id"])))
     return s.SettingsRead(
         model_url=value.model_url,
         model_name=value.model_name,
         vision_enabled=value.vision_enabled,
         timezone=value.timezone,
         memory_mode=value.memory_mode,
-        model_configured=bool(value.model_name.strip() and secret_get("model")),
+        model_configured=bool(value.model_name.strip() and secret_get(model_profiles.secret_ref(value.default_provider))),
         search_configured=bool(secret_get("search")),
+        providers=profiles,
+        default_provider=value.default_provider,
+        provider_presets=model_profiles.presets(),
     )
 
 
@@ -141,7 +184,7 @@ def create_run(db, kind, conversation_id=None, goal_id=None):
 
 @app.get("/api/v1/health")
 def health():
-    return {"service": "bai-agent", "version": "0.1.0"}
+    return {"service": "bai-agent", "version": "0.1.2"}
 
 
 from fastapi import APIRouter
@@ -157,6 +200,85 @@ def get_settings(db=Depends(database)):
 @router.get("/tools", response_model=list[s.ToolRead])
 def get_tools():
     return tools.tool_catalog()
+
+
+@router.patch("/tools/{tool_id}", response_model=s.ToolRead)
+def update_tool(tool_id: str, value: s.ToolUpdate):
+    try:
+        return tools.set_tool_enabled(tool_id, value.enabled)
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from None
+
+
+@router.get("/mcp/servers", response_model=list[s.MCPServerRead])
+def get_mcp_servers():
+    return mcp_service.list_servers()
+
+
+@router.post("/mcp/servers", response_model=s.MCPServerRead)
+async def create_mcp_server(value: s.MCPServerWrite):
+    try:
+        server_id = mcp_service.save_servers([value])[0]
+        await mcp_service.manager.reload(server_id)
+        return next(x for x in mcp_service.list_servers() if x["id"] == server_id)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
+    except Exception:
+        raise HTTPException(503, "MCP 配置保存失败，请检查系统凭据存储") from None
+
+
+@router.post("/mcp/servers/import", response_model=list[s.MCPServerRead])
+async def import_mcp_servers(value: s.MCPImport):
+    try:
+        # Validate the complete batch before writing any configuration.
+        ids = mcp_service.save_servers(mcp_service.parse_import(value))
+        return [x for x in mcp_service.list_servers() if x["id"] in ids]
+    except ValueError:
+        raise HTTPException(
+            400, "导入失败：配置字段、传输类型或服务名称无效，请检查预览"
+        ) from None
+    except Exception:
+        raise HTTPException(503, "导入保存失败，请检查系统凭据存储") from None
+
+
+@router.put("/mcp/servers/{server_id}", response_model=s.MCPServerRead)
+async def update_mcp_server(server_id: str, value: s.MCPServerWrite):
+    try:
+        mcp_service.save_servers([value], server_id)
+        await mcp_service.manager.reload(server_id)
+        return next(x for x in mcp_service.list_servers() if x["id"] == server_id)
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from None
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
+    except Exception:
+        raise HTTPException(503, "MCP 配置保存失败，请检查系统凭据存储") from None
+
+
+@router.delete("/mcp/servers/{server_id}")
+async def delete_mcp_server(server_id: str):
+    try:
+        async with mcp_service.manager.changes:
+            await mcp_service.manager.stop(server_id)
+            with store.Session() as db:
+                server = mcp_service.require_server(db, server_id)
+                for kind in ("headers", "env"):
+                    for ref in server.config.get(kind, {}).values():
+                        mcp_service.vault.secret_set(ref, "")
+                db.delete(server)
+                db.commit()
+        return {"deleted": True}
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from None
+
+
+@router.post("/mcp/servers/{server_id}/test", response_model=s.MCPServerRead)
+async def test_mcp_server(server_id: str):
+    try:
+        await mcp_service.manager.test(server_id)
+        return next(x for x in mcp_service.list_servers() if x["id"] == server_id)
+    except LookupError as error:
+        raise HTTPException(404, str(error)) from None
 
 
 @router.get("/runs/{run_id}/tools")
@@ -177,20 +299,61 @@ def get_run_tools(run_id: str, db=Depends(database)):
 
 @router.put("/settings", response_model=s.SettingsRead)
 def update_settings(value: s.SettingsUpdate, db=Depends(database)):
+    settings = db.get(store.Settings, PROFILE_ID)
+    profiles = {x["id"]: x for x in model_profiles.profiles(settings)}
+    default_provider = value.default_provider or settings.default_provider
+    if value.providers is not None:
+        for profile in value.providers:
+            profiles[profile.id] = profile.model_dump(mode="json", exclude={"api_key"})
+        if value.default_provider and value.default_provider not in profiles:
+            raise HTTPException(400, "默认模型连接不存在。")
+        if default_provider not in profiles and profiles:
+            default_provider = next(iter(profiles))
     try:
-        secret_set("model", value.model_key)
+        if value.providers is None:
+            secret_set("model", value.model_key)
+        else:
+            for profile in value.providers:
+                secret_set(model_profiles.secret_ref(profile.id), profile.api_key)
         secret_set("search", value.search_key)
     except Exception:
         raise HTTPException(
             503, "系统凭据存储不可用，密钥未写入普通文件。请检查 Windows 凭据管理。"
         )
-    settings = db.get(store.Settings, PROFILE_ID)
-    settings.model_url = str(value.model_url).rstrip("/")
-    settings.model_name = value.model_name.strip()
-    settings.vision_enabled = value.vision_enabled
+    if value.providers is None:
+        settings.model_url = str(value.model_url).rstrip("/")
+        settings.model_name = value.model_name.strip()
+        settings.vision_enabled = value.vision_enabled
+        # Keep the original API compatible with existing integrations.
+        settings.default_provider = "custom"
+        settings.model_providers = [x for x in settings.model_providers if x["id"] != "custom"]
+    else:
+        settings.default_provider = default_provider
+        settings.model_providers = [{k: v for k, v in x.items() if k in {"id", "provider_type", "label", "model_url", "models", "default_model"}} for x in profiles.values()]
+        model_profiles.sync_default(settings)
     settings.timezone = value.timezone
     if value.memory_mode is not None:
         settings.memory_mode = value.memory_mode
+    db.commit()
+    return settings_read(db)
+
+
+@router.delete("/settings/providers/{provider_id}", response_model=s.SettingsRead)
+def delete_model_provider(provider_id: str, db=Depends(database)):
+    settings = db.get(store.Settings, PROFILE_ID)
+    profiles = model_profiles.profiles(settings)
+    if not any(x["id"] == provider_id for x in profiles):
+        raise HTTPException(404, "模型连接不存在。")
+    try:
+        secret_set(model_profiles.secret_ref(provider_id), "")
+    except Exception:
+        raise HTTPException(503, "清除密钥失败，请检查系统凭据存储。") from None
+    settings.model_providers = [x for x in profiles if x["id"] != provider_id]
+    if settings.default_provider == provider_id:
+        settings.default_provider = next((x["id"] for x in settings.model_providers if x["models"]), "custom")
+        # Do not recreate a just-deleted legacy connection from the compatibility fields.
+        settings.model_name = ""
+    model_profiles.sync_default(settings)
     db.commit()
     return settings_read(db)
 
@@ -203,11 +366,13 @@ def update_memory_settings(value: s.MemorySettingsUpdate, db=Depends(database)):
 
 
 @router.post("/settings/test")
-async def test_connection():
+async def test_connection(value: s.ModelSelection | None = None):
     try:
         from langchain_core.messages import HumanMessage
 
-        await provider.model().ainvoke([HumanMessage(content="请只回复：连接成功")])
+        with store.Session() as db:
+            config = model_profiles.resolve(db.get(store.Settings, PROFILE_ID), value)
+        await provider.model(config).ainvoke([HumanMessage(content="请只回复：连接成功")])
         return {"ok": True, "message": "模型接口连接成功"}
     except Exception as error:
         raise HTTPException(400, provider.safe_error(error))
@@ -244,11 +409,13 @@ def messages(conversation_id: str, db=Depends(database)):
 async def send_message(conversation_id: str, value: s.ChatInput, db=Depends(database)):
     conversation = item(db, store.Conversation, conversation_id)
     try:
-        provider.model()
-        provider.user_content(value.content, value.attachment_ids)
+        config = model_profiles.resolve(db.get(store.Settings, PROFILE_ID), value.model_selection)
+        provider.model(config)
+        provider.user_content(value.content, value.attachment_ids, config)
     except Exception as error:
         raise HTTPException(400, provider.safe_error(error))
     run = create_run(db, "chat", conversation_id=conversation_id)
+    run.model_config = config
     db.add(
         store.Message(
             conversation_id=conversation_id,
@@ -275,7 +442,11 @@ async def retry_message(conversation_id: str, db=Depends(database)):
     )
     if not latest or latest.role != "user":
         raise HTTPException(409, "没有需要重试的消息")
+    previous = db.scalar(select(store.Run).where(store.Run.conversation_id == conversation_id).order_by(store.Run.created_at.desc()))
+    config = previous.model_config if previous and previous.model_config else model_profiles.resolve(db.get(store.Settings, PROFILE_ID))
     run = create_run(db, "chat", conversation_id=conversation_id)
+    run.model_config = config
+    db.commit()
     runs.launch(run.id, lambda: agent.chat(run.id, conversation_id))
     return run
 
@@ -331,12 +502,14 @@ async def run_events(
         cursor = after
         while not await request.is_disconnected():
             with store.Session() as session:
+                # Observe terminal status before taking the event snapshot. A
+                # run finishing between these reads must not lose its tail.
+                run = session.get(store.Run, run_id)
                 events = session.scalars(
                     select(store.RunEvent)
                     .where(store.RunEvent.run_id == run_id, store.RunEvent.id > cursor)
                     .order_by(store.RunEvent.id)
                 ).all()
-                run = session.get(store.Run, run_id)
             for event in events:
                 cursor = event.id
                 yield f"id: {event.id}\ndata: {json.dumps({'kind': event.kind, 'data': event.data}, ensure_ascii=False)}\n\n"
@@ -656,6 +829,48 @@ async def upload(file: UploadFile = File(...), db=Depends(database)):
 def attachment_content(attachment_id: str, db=Depends(database)):
     record = item(db, store.Attachment, attachment_id)
     return FileResponse(ATTACHMENTS_DIR / f"{record.id}.jpg", media_type="image/jpeg")
+
+
+@router.get("/wechat/status", response_model=s.WechatStatus)
+def wechat_status(request: Request):
+    return request.app.state.wechat.status()
+
+
+@router.post("/wechat/connect", response_model=s.WechatStatus)
+async def wechat_connect(request: Request):
+    try:
+        return await request.app.state.wechat.connect()
+    except Exception:
+        request.app.state.wechat.phase = "error"
+        wechat.update_state(last_error="暂时无法获取微信二维码，请检查网络后重试。")
+        raise HTTPException(400, "暂时无法获取微信二维码，请检查网络后重试。")
+
+
+@router.put("/wechat/options", response_model=s.WechatStatus)
+async def wechat_options(value: s.WechatOptions, request: Request):
+    try:
+        return await request.app.state.wechat.options(
+            value.enabled, value.reminders_enabled
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error))
+
+
+@router.post("/wechat/verify", response_model=s.WechatStatus)
+async def wechat_verify(value: s.WechatVerify, request: Request):
+    channel = request.app.state.wechat
+    if channel.phase != "need_verifycode":
+        raise HTTPException(400, "当前不需要验证码，请刷新连接状态。")
+    channel.verify_code = value.code
+    return channel.status()
+
+
+@router.delete("/wechat/connection", response_model=s.WechatStatus)
+async def wechat_disconnect(request: Request):
+    try:
+        return await request.app.state.wechat.disconnect()
+    except Exception:
+        raise HTTPException(400, "连接已停止，但清除系统凭据失败，请重试解除绑定。")
 
 
 app.include_router(router)

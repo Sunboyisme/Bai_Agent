@@ -1,7 +1,7 @@
-from pathlib import Path
+import hashlib
 import os
 import secrets
-import hashlib
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = Path(os.getenv("BAI_DATA_DIR", ROOT / ".local-data" / "dev")).resolve()
@@ -17,6 +17,28 @@ DATABASE_URL = os.getenv(
 )
 VAULT_SERVICE = "BaiAgent-" + hashlib.sha256(str(DATA_DIR).encode()).hexdigest()[:16]
 PROFILE_ID = "local"
+
+
+def frontend_origins() -> list[str]:
+    """An explicit alternate loopback origin for isolated desktop QA."""
+    from urllib.parse import urlsplit
+
+    origin = os.getenv("BAI_FRONTEND_ORIGIN", "")
+    if not origin:
+        return []
+    value = urlsplit(origin)
+    if (
+        value.scheme != "http"
+        or value.hostname not in {"127.0.0.1", "localhost"}
+        or not value.port
+        or value.username
+        or value.password
+        or value.path
+        or value.query
+        or value.fragment
+    ):
+        raise ValueError("BAI_FRONTEND_ORIGIN 必须为带端口的本机 HTTP 来源")
+    return [origin]
 
 
 def secret_get(name: str) -> str:

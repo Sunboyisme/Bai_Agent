@@ -385,7 +385,7 @@ export function LearningPage({
                 <p>
                   做饭、养猫、游戏、编程……
                   <br />
-                  告诉 Bai 你的目标与基础，它会陪你一步一步学。
+                  告诉XiaoXi你的目标与基础，它会陪你一步一步学。
                 </p>
                 <Button onClick={() => setOpen(true)}>
                   <Plus size={16} />
@@ -583,7 +583,7 @@ export function LearningPage({
                       </div>
                     }
                   >
-                    Bai 将根据你的目标与基础，规划模块、知识点和练习。
+                    XiaoXi将根据你的目标与基础，规划模块、知识点和练习。
                   </EmptyState>
                 ) : node ? (
                   <>
@@ -821,7 +821,7 @@ export function LearningPage({
           <DialogHeader>
             <DialogTitle>你想学什么？</DialogTitle>
             <DialogDescription>
-              从一个具体目标开始，Bai 会为你建立知识框架。
+              从一个具体目标开始，XiaoXi会为你建立知识框架。
             </DialogDescription>
           </DialogHeader>
           {error && <ErrorNotice message={error} />}

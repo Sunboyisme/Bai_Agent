@@ -1,62 +1,41 @@
-import { useState } from "react";
-import {
-  Cable,
-  Brain,
-  Check,
-  Eye,
-  KeyRound,
-  Loader2,
-  Search,
-  ShieldCheck,
-} from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import { api, type Settings } from "@/lib/api";
+import { ModelConnections } from "./ModelConnections";
+import { api, type Settings, type Memory } from "@/lib/api";
 import { ErrorNotice } from "./common";
+import { WechatSection } from "./WechatSection";
+import { ToolsSettings } from "./ToolsSettings";
+import { MemoryPage } from "./MemoryPage";
 
-export function SettingsPage({
+function ConnectionSettings({
   settings,
   onSaved,
 }: {
   settings: Settings;
   onSaved: (value: Settings) => void;
 }) {
-  const [url, setUrl] = useState(settings.model_url);
-  const [model, setModel] = useState(settings.model_name);
-  const [key, setKey] = useState("");
   const [searchKey, setSearchKey] = useState("");
-  const [vision, setVision] = useState(settings.vision_enabled);
-  const [memoryMode, setMemoryMode] = useState(settings.memory_mode);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [clearModel, setClearModel] = useState(false);
   const [clearSearch, setClearSearch] = useState(false);
-  async function save(test = false) {
+  async function save() {
     setBusy(true);
     setError("");
     setNotice("");
     try {
       const value = await api<Settings>("/settings", "PUT", {
-        model_url: url,
-        model_name: model,
-        model_key: clearModel ? "" : key || null,
+        providers: [],
         search_key: clearSearch ? "" : searchKey || null,
-        vision_enabled: vision,
-        timezone: "Asia/Shanghai",
-        memory_mode: memoryMode,
+        timezone: settings.timezone,
       });
       onSaved(value);
-      setKey("");
       setSearchKey("");
-      setClearModel(false);
       setClearSearch(false);
-      if (test) {
-        const result = await api<{ message: string }>("/settings/test", "POST");
-        setNotice(result.message);
-      } else setNotice("设置已保存");
+      setNotice("设置已保存");
     } catch (error) {
       setError((error as Error).message);
     } finally {
@@ -64,14 +43,7 @@ export function SettingsPage({
     }
   }
   return (
-    <div className="settings-page page-content">
-      <div className="page-heading">
-        <div>
-          <p className="eyebrow">让 Bai 连接到你的工具</p>
-          <h1>连接与设置</h1>
-          <p>配置模型后，Bai 就能在对话中按需调用工具。</p>
-        </div>
-      </div>
+    <div>
       {error && <ErrorNotice message={error} />}
       {notice && (
         <div className="success-notice" role="status">
@@ -79,82 +51,7 @@ export function SettingsPage({
           {notice}
         </div>
       )}
-      <section className="settings-section">
-        <div className="section-title">
-          <Cable size={20} />
-          <div>
-            <h2>模型连接</h2>
-            <p>支持 OpenAI 兼容接口，使用你自己的服务商与模型。</p>
-          </div>
-          <span
-            className={`connection-label ${settings.model_configured ? "ready" : ""}`}
-          >
-            {settings.model_configured ? "已配置" : "待配置"}
-          </span>
-        </div>
-        <div className="form-field">
-          <Label htmlFor="model-url">接口地址</Label>
-          <Input
-            id="model-url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://你的服务商/v1"
-          />
-        </div>
-        <div className="form-field">
-          <Label htmlFor="model-name">模型名称</Label>
-          <Input
-            id="model-name"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder="填写服务商提供的模型名"
-          />
-        </div>
-        <div className="form-field">
-          <Label htmlFor="model-key">API 密钥</Label>
-          <Input
-            id="model-key"
-            type="password"
-            autoComplete="new-password"
-            value={key}
-            onChange={(e) => {
-              setKey(e.target.value);
-              setClearModel(false);
-            }}
-            placeholder={
-              settings.model_configured
-                ? "已保存；留空保持原密钥"
-                : "输入 API 密钥"
-            }
-          />
-          <p className="field-hint">
-            <KeyRound size={13} />
-            密钥保存在系统凭据管理中，不会显示在对话里。
-          </p>
-          {settings.model_configured && (
-            <button
-              className="text-button danger"
-              onClick={() => {
-                setClearModel(true);
-                setKey("");
-              }}
-            >
-              {clearModel ? "保存后清除密钥" : "清除已保存的密钥"}
-            </button>
-          )}
-        </div>
-        <label className="checkbox-row">
-          <Checkbox
-            checked={vision}
-            onCheckedChange={(value) => setVision(value === true)}
-          />
-          <div>
-            <span>这个模型支持图片输入</span>
-            <p>请根据服务商说明开启；不支持时仍可使用文字交流。</p>
-          </div>
-          <Eye size={18} />
-        </label>
-      </section>
+      <ModelConnections settings={settings} onSaved={onSaved} />
       <section className="settings-section">
         <div className="section-title">
           <Search size={20} />
@@ -199,46 +96,123 @@ export function SettingsPage({
           )}
         </div>
       </section>
-      <section className="settings-section">
-        <div className="section-title">
-          <Brain size={20} />
-          <div>
-            <h2>记忆</h2>
-            <p>私密信息和推测内容会先请你确认。</p>
-          </div>
-        </div>
-        <div className="form-field">
-          <Label htmlFor="memory-mode">保存方式</Label>
-          <select
-            id="memory-mode"
-            className="native-select"
-            value={memoryMode}
-            onChange={(event) =>
-              setMemoryMode(event.target.value as Settings["memory_mode"])
-            }
-          >
-            <option value="auto">自动记忆 · 自动保存明确的稳定偏好</option>
-            <option value="confirm">每次确认 · 整理后由你决定是否记住</option>
-          </select>
-        </div>
-      </section>
+      <WechatSection />
       <div className="settings-footer">
-        <span>
-          <ShieldCheck size={16} />
-          当前数据保存在这台电脑 · 时区：上海
-        </span>
         <div>
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={() => void save(true)}
-          >
-            保存并测试模型
-          </Button>
           <Button disabled={busy} onClick={() => void save()}>
             {busy ? <Loader2 size={16} className="spin" /> : null}保存设置
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+export type SettingsTab = "connections" | "tools" | "memories";
+export function SettingsPage({
+  settings,
+  onSaved,
+  memories,
+  refresh,
+  tab,
+  onTab,
+  createRequested,
+}: {
+  settings: Settings;
+  onSaved: (value: Settings) => void;
+  memories: Memory[];
+  refresh: () => Promise<void>;
+  tab: SettingsTab;
+  onTab: (value: SettingsTab) => void;
+  createRequested?: number;
+}) {
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (tab === "memories")
+      void refresh().catch((error: Error) => setError(error.message));
+  }, [tab, refresh]);
+  return (
+    <div className="settings-page page-content">
+      <div className="page-heading">
+        <h1>设置</h1>
+      </div>
+      {error && <ErrorNotice message={error} />}
+      <div className="settings-tabs" role="tablist" aria-label="设置分类">
+        {(
+          [
+            ["connections", "连接"],
+            ["tools", "工具"],
+            ["memories", "记忆"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            id={`settings-tab-${value}`}
+            role="tab"
+            aria-selected={tab === value}
+            aria-controls={`settings-panel-${value}`}
+            tabIndex={tab === value ? 0 : -1}
+            onKeyDown={(event) => {
+              if (
+                ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
+              ) {
+                event.preventDefault();
+                const tabs: SettingsTab[] = [
+                  "connections",
+                  "tools",
+                  "memories",
+                ];
+                const next =
+                  event.key === "Home"
+                    ? 0
+                    : event.key === "End"
+                      ? 2
+                      : (tabs.indexOf(tab) +
+                          (event.key === "ArrowRight" ? 1 : 2)) %
+                        3;
+                onTab(tabs[next]);
+                document.getElementById(`settings-tab-${tabs[next]}`)?.focus();
+              }
+            }}
+            onClick={() => onTab(value)}
+          >
+            {label}
+            {value === "memories" &&
+              memories.some((x) => x.state === "candidate") && (
+                <span className="candidate-dot" />
+              )}
+          </button>
+        ))}
+      </div>
+      <div
+        id="settings-panel-connections"
+        role="tabpanel"
+        aria-labelledby="settings-tab-connections"
+        hidden={tab !== "connections"}
+      >
+        <ConnectionSettings settings={settings} onSaved={onSaved} />
+      </div>
+      <div
+        id="settings-panel-tools"
+        role="tabpanel"
+        aria-labelledby="settings-tab-tools"
+        hidden={tab !== "tools"}
+      >
+        <ToolsSettings active={tab === "tools"} />
+      </div>
+      <div
+        id="settings-panel-memories"
+        role="tabpanel"
+        aria-labelledby="settings-tab-memories"
+        hidden={tab !== "memories"}
+      >
+        <MemoryPage
+          memories={memories}
+          memoryMode={settings.memory_mode}
+          refresh={refresh}
+          createRequested={createRequested}
+          embedded
+        />
       </div>
     </div>
   );

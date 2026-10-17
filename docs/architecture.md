@@ -10,6 +10,8 @@ flowchart LR
   C --> L[用户配置的模型]
   G --> L
   C --> S[Tavily 搜索与正文]
+  C --> M[MCP 连接与工具适配]
+  M --> X[本地 stdio / 远程 HTTP 服务]
   F --> D[(SQLAlchemy SQLite)]
   G --> P[(SQLite checkpoint)]
   F --> R[持久化提醒与调度]
@@ -22,6 +24,8 @@ flowchart LR
 - `src-tauri/src/main.rs`：启动本机 Python 子进程、连接认证、单实例、托盘、通知窗口、正常退出时停止自己启动的后端。
 - `backend/app/main.py`：受本机 bearer token 保护的领域 API、上传校验、任务入口。
 - `agent.py`：LangChain Agent、搜索/正文/记忆/提醒/学习目标工具及审计。
+- `tools.py`：内置工具工厂、统一目录及开关，执行前复查与 RunEvent 调用记录；Agent 使用已启用且可用的工具。
+- `mcp_service.py`：凭据引用与服务配置、工具发现缓存、按服务隔离的连接任务和串行调用队列，管理连接、取消及资源释放。连接保存不执行，启用或测试才连接；具体约定见 [MCP 接入说明](mcp.md)。
 - `learning.py`：课程规划，`teach → await_submission → assess` 教学图。
 - `runs.py`：任务生命周期、超时、取消、数据库事件。
 - `reminders.py`：从数据库取到期事项，写入唯一通知，并推进重复任务时间。

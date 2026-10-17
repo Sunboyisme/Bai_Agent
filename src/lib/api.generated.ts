@@ -56,6 +56,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tools/{tool_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Tool */
+        patch: operations["update_tool_api_v1_tools__tool_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/mcp/servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Mcp Servers */
+        get: operations["get_mcp_servers_api_v1_mcp_servers_get"];
+        put?: never;
+        /** Create Mcp Server */
+        post: operations["create_mcp_server_api_v1_mcp_servers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp/servers/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Mcp Servers */
+        post: operations["import_mcp_servers_api_v1_mcp_servers_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp/servers/{server_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Mcp Server */
+        put: operations["update_mcp_server_api_v1_mcp_servers__server_id__put"];
+        post?: never;
+        /** Delete Mcp Server */
+        delete: operations["delete_mcp_server_api_v1_mcp_servers__server_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp/servers/{server_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Mcp Server */
+        post: operations["test_mcp_server_api_v1_mcp_servers__server_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/tools": {
         parameters: {
             query?: never;
@@ -68,6 +155,23 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/providers/{provider_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Model Provider */
+        delete: operations["delete_model_provider_api_v1_settings_providers__provider_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -540,6 +644,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/wechat/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Wechat Status */
+        get: operations["wechat_status_api_v1_wechat_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/wechat/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Wechat Connect */
+        post: operations["wechat_connect_api_v1_wechat_connect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/wechat/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Wechat Options */
+        put: operations["wechat_options_api_v1_wechat_options_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/wechat/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Wechat Verify */
+        post: operations["wechat_verify_api_v1_wechat_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/wechat/connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Wechat Disconnect */
+        delete: operations["wechat_disconnect_api_v1_wechat_connection_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -572,6 +761,7 @@ export interface components {
             content: string;
             /** Attachment Ids */
             attachment_ids?: string[];
+            model_selection?: components["schemas"]["ModelSelection"] | null;
         };
         /** ConversationCreate */
         ConversationCreate: {
@@ -660,6 +850,100 @@ export interface components {
             /** State */
             state: string;
         };
+        /** MCPImport */
+        MCPImport: {
+            /** Mcpservers */
+            mcpServers: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        /** MCPServerRead */
+        MCPServerRead: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Transport
+             * @enum {string}
+             */
+            transport: "stdio" | "streamable_http";
+            /** Url */
+            url: string;
+            /** Command */
+            command: string;
+            /** Args */
+            args: string[];
+            /** Cwd */
+            cwd: string;
+            /** Headers */
+            headers: {
+                [key: string]: boolean;
+            };
+            /** Env */
+            env: {
+                [key: string]: boolean;
+            };
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "disabled" | "disconnected" | "connecting" | "connected" | "error";
+            /** Error */
+            error: string;
+            /** Tested At */
+            tested_at: string | null;
+            /** Tool Count */
+            tool_count: number;
+        };
+        /** MCPServerWrite */
+        MCPServerWrite: {
+            /** Name */
+            name: string;
+            /**
+             * Transport
+             * @enum {string}
+             */
+            transport: "stdio" | "streamable_http";
+            /**
+             * Url
+             * @default
+             */
+            url: string;
+            /**
+             * Command
+             * @default
+             */
+            command: string;
+            /** Args */
+            args?: string[];
+            /**
+             * Cwd
+             * @default
+             */
+            cwd: string;
+            /** Headers */
+            headers?: {
+                [key: string]: string | null;
+            };
+            /** Env */
+            env?: {
+                [key: string]: string | null;
+            };
+            /** Clear Headers */
+            clear_headers?: string[];
+            /** Clear Env */
+            clear_env?: string[];
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+        };
         /** MemoryConfirm */
         MemoryConfirm: {
             /** Revision */
@@ -741,6 +1025,55 @@ export interface components {
             /** Attachment Ids */
             attachment_ids: string[];
         };
+        /** ModelOption */
+        ModelOption: {
+            /** Name */
+            name: string;
+            /**
+             * Vision Enabled
+             * @default false
+             */
+            vision_enabled: boolean;
+            /**
+             * Thinking Mode
+             * @default auto
+             * @enum {string}
+             */
+            thinking_mode: "auto" | "none" | "always" | "enable_thinking" | "thinking" | "reasoning_effort";
+        };
+        /** ModelOptionRead */
+        ModelOptionRead: {
+            /** Name */
+            name: string;
+            /**
+             * Vision Enabled
+             * @default false
+             */
+            vision_enabled: boolean;
+            /**
+             * Thinking Mode
+             * @default auto
+             * @enum {string}
+             */
+            thinking_mode: "auto" | "none" | "always" | "enable_thinking" | "thinking" | "reasoning_effort";
+            /**
+             * Thinking Control
+             * @enum {string}
+             */
+            thinking_control: "auto" | "none" | "always" | "enable_thinking" | "thinking" | "reasoning_effort";
+        };
+        /** ModelSelection */
+        ModelSelection: {
+            /** Provider Id */
+            provider_id: string;
+            /** Model Name */
+            model_name: string;
+            /**
+             * Thinking Enabled
+             * @default false
+             */
+            thinking_enabled: boolean;
+        };
         /** NodeRead */
         NodeRead: {
             /** Id */
@@ -790,6 +1123,70 @@ export interface components {
             status: string;
             /** Overdue */
             overdue: boolean;
+        };
+        /** ProviderPresetRead */
+        ProviderPresetRead: {
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "bailian" | "deepseek" | "kimi" | "zhipu" | "siliconflow" | "custom";
+            /** Label */
+            label: string;
+            /** Model Url */
+            model_url: string;
+            /** Models */
+            models: components["schemas"]["ModelOption"][];
+        };
+        /** ProviderRead */
+        ProviderRead: {
+            /** Id */
+            id: string;
+            /**
+             * Provider Type
+             * @enum {string}
+             */
+            provider_type: "bailian" | "deepseek" | "kimi" | "zhipu" | "siliconflow" | "custom";
+            /** Label */
+            label: string;
+            /** Model Url */
+            model_url: string;
+            /** Models */
+            models: components["schemas"]["ModelOptionRead"][];
+            /** Default Model */
+            default_model: string;
+            /** Key Configured */
+            key_configured: boolean;
+        };
+        /** ProviderWrite */
+        ProviderWrite: {
+            /** Id */
+            id: string;
+            /**
+             * Provider Type
+             * @default custom
+             * @enum {string}
+             */
+            provider_type: "bailian" | "deepseek" | "kimi" | "zhipu" | "siliconflow" | "custom";
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /**
+             * Model Url
+             * Format: uri
+             */
+            model_url: string;
+            /** Models */
+            models?: components["schemas"]["ModelOption"][];
+            /**
+             * Default Model
+             * @default
+             */
+            default_model: string;
+            /** Api Key */
+            api_key?: string | null;
         };
         /** ReminderAction */
         ReminderAction: {
@@ -897,15 +1294,25 @@ export interface components {
             model_configured: boolean;
             /** Search Configured */
             search_configured: boolean;
+            /** Providers */
+            providers: components["schemas"]["ProviderRead"][];
+            /** Default Provider */
+            default_provider: string;
+            /** Provider Presets */
+            provider_presets: components["schemas"]["ProviderPresetRead"][];
         };
         /** SettingsUpdate */
         SettingsUpdate: {
             /**
              * Model Url
              * Format: uri
+             * @default https://api.openai.com/v1
              */
             model_url: string;
-            /** Model Name */
+            /**
+             * Model Name
+             * @default
+             */
             model_name: string;
             /** Model Key */
             model_key?: string | null;
@@ -923,6 +1330,10 @@ export interface components {
             timezone: string;
             /** Memory Mode */
             memory_mode?: ("auto" | "confirm") | null;
+            /** Providers */
+            providers?: components["schemas"]["ProviderWrite"][] | null;
+            /** Default Provider */
+            default_provider?: string | null;
         };
         /** Submission */
         Submission: {
@@ -945,6 +1356,26 @@ export interface components {
             available: boolean;
             /** Note */
             note: string;
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "builtin" | "mcp";
+            /** Source Label */
+            source_label: string;
+            /** Server Id */
+            server_id?: string | null;
+            /** Parameters */
+            parameters?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ToolUpdate */
+        ToolUpdate: {
+            /** Enabled */
+            enabled: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -958,6 +1389,49 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WechatDeliveryRead */
+        WechatDeliveryRead: {
+            /** Id */
+            id: string;
+            /** Status */
+            status: string;
+            /** Error */
+            error: string;
+            /** Created At */
+            created_at: string;
+        };
+        /** WechatOptions */
+        WechatOptions: {
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Reminders Enabled
+             * @default false
+             */
+            reminders_enabled: boolean;
+        };
+        /** WechatStatus */
+        WechatStatus: {
+            /** Enabled */
+            enabled: boolean;
+            /** Bound */
+            bound: boolean;
+            /** Reminders Enabled */
+            reminders_enabled: boolean;
+            /** Phase */
+            phase: string;
+            /** Qr Image */
+            qr_image: string;
+            /** Error */
+            error: string;
+            /** Deliveries */
+            deliveries: components["schemas"]["WechatDeliveryRead"][];
+        };
+        /** WechatVerify */
+        WechatVerify: {
+            /** Code */
+            code: string;
         };
     };
     responses: never;
@@ -1061,6 +1535,224 @@ export interface operations {
             };
         };
     };
+    update_tool_api_v1_tools__tool_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tool_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToolUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_mcp_servers_api_v1_mcp_servers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServerRead"][];
+                };
+            };
+        };
+    };
+    create_mcp_server_api_v1_mcp_servers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPServerWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServerRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_mcp_servers_api_v1_mcp_servers_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServerRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_mcp_server_api_v1_mcp_servers__server_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                server_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPServerWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServerRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_mcp_server_api_v1_mcp_servers__server_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                server_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_mcp_server_api_v1_mcp_servers__server_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                server_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPServerRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_run_tools_api_v1_runs__run_id__tools_get: {
         parameters: {
             query?: never;
@@ -1079,6 +1771,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_model_provider_api_v1_settings_providers__provider_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsRead"];
                 };
             };
             /** @description Validation Error */
@@ -1132,7 +1855,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ModelSelection"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -1141,6 +1868,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2159,6 +2895,132 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    wechat_status_api_v1_wechat_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WechatStatus"];
+                };
+            };
+        };
+    };
+    wechat_connect_api_v1_wechat_connect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WechatStatus"];
+                };
+            };
+        };
+    };
+    wechat_options_api_v1_wechat_options_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WechatOptions"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WechatStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    wechat_verify_api_v1_wechat_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WechatVerify"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WechatStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    wechat_disconnect_api_v1_wechat_connection_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WechatStatus"];
                 };
             };
         };

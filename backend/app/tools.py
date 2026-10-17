@@ -1,10 +1,12 @@
 """Reusable chat-tool registry, shared by the agent and the tool catalog."""
 
+import asyncio
 import json
+import time
 from typing import Literal
 
 import httpx
-from langchain_core.tools import tool
+from langchain_core.tools import StructuredTool, tool
 from sqlalchemy import select
 
 from . import learning, memory, provider, runs, search, utilities, weather
@@ -31,11 +33,18 @@ TOOL_INFO = {
 }
 
 
-def tool_catalog() -> list[dict]:
+def builtin_catalog() -> list[dict]:
+    from .db import BuiltinToolState
+
+    with Session() as db:
+        states = {x.id: x.enabled for x in db.scalars(select(BuiltinToolState))}
     search_ready = bool(secret_get("search"))
     return [
         {
             "id": name,
+            "enabled": states.get(name, True),
+            "source": "builtin",
+            "source_label": "内置工具",
             "name": label,
             "description": description,
             "available": not requires_search or search_ready,
@@ -49,19 +58,7 @@ def tool_catalog() -> list[dict]:
     ]
 
 
-def build_tools(run_id: str, conversation_id: str):
-    def audit(name, args, result):
-        failed = isinstance(result, dict) and bool(result.get("error"))
-        emit(
-            run_id,
-            "tool",
-            {
-                "name": name,
-                "arguments": args,
-                "result": result,
-                "status": "error" if failed else "completed",
-            },
-        )
+def builtin_tools(run_id: str, conversation_id: str):
 
     @tool
     async def get_weather(
@@ -82,7 +79,6 @@ def build_tools(run_id: str, conversation_id: str):
             }
         except httpx.HTTPError:
             result = {"error": "天气查询失败，请检查网络或稍后重试。不可编造天气数据。"}
-        audit("查询天气", arguments, result)
         return json.dumps(result, ensure_ascii=False)
 
     def utility_result(name, arguments, operation):
@@ -90,7 +86,6 @@ def build_tools(run_id: str, conversation_id: str):
             result = operation(**arguments)
         except ValueError as error:
             result = {"error": str(error)}
-        audit(name, arguments, result)
         return json.dumps(result, ensure_ascii=False)
 
     @tool
@@ -133,7 +128,6 @@ def build_tools(run_id: str, conversation_id: str):
             result = await search.search_web(query)
         except (httpx.HTTPError, provider.ConfigurationError, ValueError) as error:
             result = {"error": provider.safe_error(error)}
-        audit("搜索资料", {"query": query}, result)
         return json.dumps(result, ensure_ascii=False)
 
     @tool
@@ -143,15 +137,6 @@ def build_tools(run_id: str, conversation_id: str):
             result = await search.read_webpage(url)
         except (httpx.HTTPError, provider.ConfigurationError, ValueError) as error:
             result = {"url": url, "error": provider.safe_error(error)}
-        audit(
-            "读取网页",
-            {"url": url},
-            {
-                "url": url,
-                "read": bool(result.get("content")),
-                "error": result.get("error"),
-            },
-        )
         return json.dumps(result, ensure_ascii=False)
 
     @tool
@@ -170,7 +155,6 @@ def build_tools(run_id: str, conversation_id: str):
             result = [
                 {"id": x.id, "content": x.content, "source": x.source} for x in items
             ]
-        audit("查询记忆", {"query": query}, {"count": len(result)})
         return json.dumps(result, ensure_ascii=False)
 
     @tool
@@ -195,7 +179,6 @@ def build_tools(run_id: str, conversation_id: str):
         )
         if result.get("changed"):
             emit(run_id, "memory", result)
-        audit("保存记忆", {"content": content}, result)
         return json.dumps(result, ensure_ascii=False)
 
     @tool
@@ -240,10 +223,12 @@ def build_tools(run_id: str, conversation_id: str):
                     "due_at": reminder.due_at,
                     "timezone": reminder.timezone,
                 }
-            audit("创建提醒", {"title": title, "due_at": due_at}, result)
             return json.dumps(result, ensure_ascii=False)
         except ValueError:
-            return "时间或参数无效，请明确时间和时区后重试。"
+            return json.dumps(
+                {"error": "时间或参数无效，请明确时间和时区后重试。"},
+                ensure_ascii=False,
+            )
 
     @tool
     def list_reminders() -> str:
@@ -255,7 +240,6 @@ def build_tools(run_id: str, conversation_id: str):
                     select(Reminder).where(Reminder.status == "active").limit(30)
                 )
             ]
-        audit("查询提醒", {}, {"count": len(result)})
         return json.dumps(result, ensure_ascii=False)
 
     @tool
@@ -264,11 +248,10 @@ def build_tools(run_id: str, conversation_id: str):
         with Session() as db:
             item = db.get(Reminder, reminder_id)
             if not item:
-                return "提醒不存在"
+                return json.dumps({"error": "提醒不存在"}, ensure_ascii=False)
             item.status = "cancelled"
             invalidate_notifications(db, item.id)
             db.commit()
-        audit("取消提醒", {"id": reminder_id}, {"cancelled": True})
         return "已取消"
 
     @tool
@@ -308,7 +291,6 @@ def build_tools(run_id: str, conversation_id: str):
                 "error": planning.error,
                 "next_action": "打开学习页，选择这个目标，开始第一个知识点",
             }
-        audit("创建学习路线", {"title": title}, result)
         return json.dumps(result, ensure_ascii=False)
 
     @tool
@@ -324,7 +306,6 @@ def build_tools(run_id: str, conversation_id: str):
                 }
                 for x in db.scalars(select(Goal).limit(20))
             ]
-        audit("查询学习进度", {}, {"count": len(result)})
         return json.dumps(result, ensure_ascii=False)
 
     return [
@@ -342,3 +323,181 @@ def build_tools(run_id: str, conversation_id: str):
         learning_goals,
         create_learning_goal,
     ]
+
+
+def tool_catalog() -> list[dict]:
+    from . import mcp_service
+    from .db import MCPServer, MCPTool
+
+    catalog = builtin_catalog()
+    schemas = {
+        tool.name: tool.args_schema.model_json_schema()
+        for tool in builtin_tools("", "")
+    }
+    for item in catalog:
+        item["parameters"] = schemas[item["id"]]
+        if not item["enabled"]:
+            item["note"] = "已关闭"
+    with Session() as db:
+        servers = {
+            x.id: x
+            for x in db.scalars(
+                select(MCPServer).where(MCPServer.profile_id == PROFILE_ID)
+            )
+        }
+        for remote in db.scalars(select(MCPTool).order_by(MCPTool.remote_name)):
+            server = servers.get(remote.server_id)
+            if not server:
+                continue
+            worker = mcp_service.manager.workers.get(server.id)
+            available = bool(
+                server.enabled
+                and remote.present
+                and worker
+                and worker.status == "connected"
+            )
+            catalog.append(
+                {
+                    "id": remote.id,
+                    "name": remote.remote_name,
+                    "description": remote.description,
+                    "source": "mcp",
+                    "source_label": server.name,
+                    "server_id": server.id,
+                    "enabled": remote.enabled,
+                    "available": available,
+                    "parameters": remote.input_schema,
+                    "note": "服务已移除此工具"
+                    if not remote.present
+                    else "已关闭"
+                    if not remote.enabled
+                    else "已连接"
+                    if available
+                    else "服务未连接"
+                    if server.enabled
+                    else "服务已停用",
+                }
+            )
+    return catalog
+
+
+def set_tool_enabled(tool_id, enabled):
+    from .db import BuiltinToolState, MCPServer, MCPTool
+
+    with Session() as db:
+        if tool_id in TOOL_INFO:
+            row = db.get(BuiltinToolState, tool_id)
+            if row is None:
+                row = BuiltinToolState(id=tool_id)
+                db.add(row)
+        else:
+            row = db.get(MCPTool, tool_id)
+            server = db.get(MCPServer, row.server_id) if row else None
+            if not row or not server or server.profile_id != PROFILE_ID:
+                raise LookupError("工具不存在")
+        row.enabled = enabled
+        db.commit()
+    return next(x for x in tool_catalog() if x["id"] == tool_id)
+
+
+def _guard_tool(entry, originals, run_id):
+    from . import mcp_service
+    from .db import MCPTool
+
+    async def execute(**arguments):
+        started = time.monotonic()
+        status = "completed"
+        secrets = []
+        try:
+            current = next((x for x in tool_catalog() if x["id"] == entry["id"]), None)
+            if not current or not current["enabled"] or not current["available"]:
+                value = {"error": "工具已关闭或当前不可用"}
+            elif entry["source"] == "builtin":
+                raw = await originals[entry["id"]].ainvoke(arguments)
+                try:
+                    value = json.loads(raw)
+                except (ValueError, TypeError):
+                    value = {"text": str(raw)}
+            else:
+                with Session() as db:
+                    remote = db.get(MCPTool, entry["id"])
+                    server = mcp_service.require_server(db, entry["server_id"])
+                    secrets = mcp_service.secret_values(server)
+                    remote_name = remote.remote_name
+                worker = mcp_service.manager.workers.get(entry["server_id"])
+                value = (
+                    await worker.call(remote_name, arguments)
+                    if worker
+                    else {"error": "MCP 服务未连接"}
+                )
+            value = mcp_service.redact(value, secrets)
+            if isinstance(value, dict) and value.get("error"):
+                status = "error"
+            return json.dumps(value, ensure_ascii=False)
+        except asyncio.CancelledError:
+            status, value = (
+                "cancelled",
+                {"error": "已取消，已发出的外部操作可能已执行"},
+            )
+            raise
+        except Exception:  # noqa: BLE001 - external tools must return a safe error to the agent
+            status, value = (
+                "error",
+                {"error": "工具执行失败，请检查连接和参数；未自动重试"},
+            )
+            return json.dumps(value, ensure_ascii=False)
+        finally:
+            emit(
+                run_id,
+                "tool",
+                {
+                    "tool_id": entry["id"],
+                    "name": entry["name"],
+                    "source": entry["source"],
+                    "source_label": entry["source_label"],
+                    "arguments": mcp_service.redact(arguments, secrets),
+                    "result": value,
+                    "status": status,
+                    "duration_ms": round((time.monotonic() - started) * 1000),
+                },
+            )
+
+    return execute
+
+
+def _sync_tool(execute):
+    def invoke(**arguments):
+        return asyncio.run(execute(**arguments))
+
+    return invoke
+
+
+def build_tools(run_id: str, conversation_id: str):
+    """One guarded execution entry for local and external tools."""
+    originals = {x.name: x for x in builtin_tools(run_id, conversation_id)}
+    result = []
+    for entry in tool_catalog():
+        if not entry["enabled"] or not entry["available"]:
+            continue
+
+        execute = _guard_tool(dict(entry), originals, run_id)
+
+        result.append(
+            StructuredTool.from_function(
+                func=_sync_tool(execute) if entry["source"] == "builtin" else None,
+                coroutine=execute,
+                name=entry["id"],
+                description=f"{entry['source_label']} · {entry['description'] or entry['name']}",
+                args_schema=originals[entry["id"]].args_schema
+                if entry["source"] == "builtin"
+                else entry["parameters"],
+            )
+        )
+    return result
+
+
+async def prepare_tools(run_id, conversation_id):
+    from . import mcp_service
+
+    await mcp_service.manager.prepare()
+    return build_tools(run_id, conversation_id)

@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backend_port;
+mod window_layout;
 
 use serde::Serialize;
 #[cfg(windows)]
@@ -47,10 +48,21 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+fn ensure_window_visible(window: tauri::WebviewWindow) -> Result<(), String> {
+    window_layout::ensure_visible(&window).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn restore_window_layout(window: tauri::WebviewWindow) -> Result<(), String> {
+    window_layout::fit_main_window(&window).map_err(|error| error.to_string())
+}
+
 fn open_main(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
+        let _ = window_layout::ensure_visible(&window);
         let _ = window.set_focus();
     }
 }
@@ -72,8 +84,17 @@ fn main() {
         }))
         .plugin(tauri_plugin_notification::init())
         .manage(backend)
-        .invoke_handler(tauri::generate_handler![backend_config, quit_app])
+        .invoke_handler(tauri::generate_handler![
+            backend_config,
+            quit_app,
+            ensure_window_visible,
+            restore_window_layout
+        ])
         .setup(move |app| {
+            if let Some(window) = app.get_webview_window("main") {
+                window_layout::fit_main_window(&window)?;
+                window.show()?;
+            }
             let data_dir = if let Some(folder) = std::env::var_os("BAI_DATA_DIR") {
                 PathBuf::from(folder)
             } else {
@@ -158,14 +179,19 @@ fn main() {
                 let child = command.spawn()?;
                 *app.state::<Backend>().child.lock().unwrap() = Some(child);
             }
-            let show = MenuItem::with_id(app, "show", "打开 Bai", true, None::<&str>)?;
-            let exit =
-                MenuItem::with_id(app, "quit", "退出 Bai（暂停本机提醒）", true, None::<&str>)?;
+            let show = MenuItem::with_id(app, "show", "打开XiaoXi", true, None::<&str>)?;
+            let exit = MenuItem::with_id(
+                app,
+                "quit",
+                "退出XiaoXi（暂停本机提醒）",
+                true,
+                None::<&str>,
+            )?;
             let menu = Menu::with_items(app, &[&show, &exit])?;
             let icon = app.default_window_icon().cloned().ok_or("应用图标缺失")?;
             TrayIconBuilder::new()
                 .icon(icon)
-                .tooltip("Bai · 个人助手")
+                .tooltip("XiaoXi · 个人助手")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -207,7 +233,7 @@ fn main() {
                         let _ = handle
                             .notification()
                             .builder()
-                            .title(note["title"].as_str().unwrap_or("Bai 提醒你"))
+                            .title(note["title"].as_str().unwrap_or("XiaoXi提醒你"))
                             .body(note["body"].as_str().unwrap_or(""))
                             .show();
                     }
@@ -221,7 +247,7 @@ fn main() {
                             "reminder",
                             WebviewUrl::App("index.html?view=reminder".into()),
                         )
-                        .title("Bai 提醒你")
+                        .title("XiaoXi提醒你")
                         .inner_size(420.0, 320.0)
                         .resizable(false)
                         .always_on_top(true)
@@ -253,7 +279,7 @@ fn main() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("Bai 桌面应用启动失败");
+        .expect("XiaoXi桌面应用启动失败");
     app.run(|handle, event| {
         if matches!(event, tauri::RunEvent::Exit) {
             if let Some(mut child) = handle.state::<Backend>().child.lock().unwrap().take() {

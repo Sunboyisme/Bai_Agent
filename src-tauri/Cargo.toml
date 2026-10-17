@@ -1,7 +1,7 @@
 [package]
 name = "bai-agent"
-version = "0.1.0"
-description = "Bai personal learning and action assistant"
+version = "0.1.2"
+description = "XiaoXi personal learning and action assistant"
 edition = "2021"
 
 [build-dependencies]
